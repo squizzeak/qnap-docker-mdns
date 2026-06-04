@@ -1,0 +1,42 @@
+# Build container for qnap-docker-mdns QPKG
+#
+# Provides QDK (qbuild) and Go toolchain for QPKG assembly.
+# Use via: make container-image container-qbuild container-build
+#
+FROM ubuntu:22.04
+
+ARG QDK_VERSION=2.5.0
+ARG GO_VERSION=1.25.0
+ARG TARGETARCH=amd64
+
+LABEL org.opencontainers.image.source="https://github.com/squizzeak/qnap-docker-mdns"
+LABEL org.opencontainers.image.description="QPKG build environment with QDK + Go"
+LABEL org.opencontainers.image.version="${QDK_VERSION}"
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    wget \
+    pv \
+    xz-utils \
+    rsync \
+    gnupg2 \
+    curl \
+    openssl \
+    bsdmainutils \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN wget -q "https://github.com/qnap-dev/QDK/releases/download/v${QDK_VERSION}/qdk_${QDK_VERSION}_${TARGETARCH}.deb" \
+    && apt-get install -y "./qdk_${QDK_VERSION}_${TARGETARCH}.deb" \
+    && rm -f "qdk_${QDK_VERSION}_${TARGETARCH}.deb"
+
+RUN wget -q "https://go.dev/dl/go${GO_VERSION}.linux-${TARGETARCH}.tar.gz" \
+    && tar -C /usr/local -xzf "go${GO_VERSION}.linux-${TARGETARCH}.tar.gz" \
+    && rm -f "go${GO_VERSION}.linux-${TARGETARCH}.tar.gz"
+
+ENV PATH=$PATH:/usr/local/go/bin
+
+WORKDIR /build
+
+CMD ["qbuild", "--force-config"]

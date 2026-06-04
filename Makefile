@@ -9,27 +9,31 @@ SHARED   := ./shared
 GOOS     ?= linux
 GOARCH   ?= amd64
 
-QBUILD   := qbuild
+# Container engine: podman preferred, docker fallback
+ENGINE   := $(shell command -v podman 2>/dev/null || command -v docker 2>/dev/null)
+IMAGE    := qnap-docker-mdns-builder
+QDK_VER  := 2.5.0
 
-.PHONY: all build cross-build test lint clean run dist install-qdk qbuild qpkg qinstall help
+.PHONY: all build cross-build test lint clean run dist help
+.PHONY: container-image container-qbuild container-build container-shell
 
 all: build
 
 help:
 	@echo "Targets:"
-	@echo "  build        - Build for host platform"
-	@echo "  cross-build  - Cross-compile for QNAP (GOOS=linux GOARCH=amd64)"
-	@echo "  test         - Run all unit tests"
-	@echo "  lint         - Run go vet"
-	@echo "  clean        - Remove build artifacts"
-	@echo "  dist         - Cross-compile and stage binary"
-	@echo "  run          - Run daemon locally (requires Docker)"
+	@echo "  build            - Build for host platform"
+	@echo "  cross-build      - Cross-compile for QNAP (GOOS=linux GOARCH=amd64)"
+	@echo "  test             - Run all unit tests"
+	@echo "  lint             - Run go vet"
+	@echo "  clean            - Remove build artifacts"
+	@echo "  dist             - Cross-compile and stage binary"
+	@echo "  run              - Run daemon locally (requires Docker)"
 	@echo ""
-	@echo "QPKG targets (requires QDK):"
-	@echo "  install-qdk  - Download and install QDK qbuild tool"
-	@echo "  qbuild       - Run qbuild to produce .qpkg archive"
-	@echo "  qpkg         - cross-build + qbuild (one-step build)"
-	@echo "  qinstall     - Create unpacked qinstall.sh for fast iteration"
+	@echo "Container build (uses $(or $(ENGINE),podman/docker)):"
+	@echo "  container-image  - Build the QPKG builder image (QDK + Go)"
+	@echo "  container-qbuild - Run qbuild inside the container"
+	@echo "  container-build  - cross-build + container-qbuild (one step)"
+	@echo "  container-shell  - Interactive shell inside the container"
 	@echo ""
 	@echo "Cross-compilation:"
 	@echo "  make cross-build              -> linux/amd64 (x86_64 QNAP)"
@@ -48,8 +52,7 @@ cross-build:
 
 dist: cross-build
 	@echo "Binary: $(DIST_DIR)/$(BINARY)-$(GOARCH)"
-	@echo "Run 'make qbuild' to build the QPKG, or copy manually:"
-	@echo "  cp $(DIST_DIR)/$(BINARY)-$(GOARCH) $(SHARED)/$(BINARY)"
+	@echo "Stage with: cp $(DIST_DIR)/$(BINARY)-$(GOARCH) $(SHARED)/$(BINARY)"
 
 test:
 	go test -v ./...
@@ -67,92 +70,49 @@ run: build
 	./$(BINARY)
 
 # ------------------------------------------------------------------
-# QPKG / QDK targets
+# Container-based QPKG build (podman preferred, docker fallback)
 # ------------------------------------------------------------------
 
-# QDK acquisition path:
-#
-# QNAP provides the QDK (QNAP Development Kit) which includes qbuild.
-# The recommended approach depends on your platform:
-#
-#   macOS / Linux (x86_64):
-#     1. Download QDK from https://www.qnap.com/en/utilities/essentials
-#        (search for "QDK" or "QNAP Development Kit")
-#     2. A QNAP ID (QID) account may be required for download access.
-#     3. Install the .qpkg on a QNAP NAS, then copy /usr/local/sbin/qbuild
-#        and supporting files from the NAS to a Linux build machine, or
-#        build directly on the NAS via SSH.
-#
-#   Docker alternative (any platform):
-#     The QNAP development community maintains unofficial Docker images
-#     with qbuild pre-installed for CI pipelines.
-#
-#   QNAP NAS (native):
-#     Install QDK via App Center, then run qbuild over SSH.
-#
-# Once qbuild is in PATH, run: make qbuild
+# Build the builder image with QDK + Go toolchain
+container-image: check-engine
+	$(ENGINE) build \
+		--build-arg QDK_VERSION=$(QDK_VER) \
+		--build-arg TARGETARCH=$(GOARCH) \
+		-t $(IMAGE) \
+		-f Dockerfile.build .
 
-QDK_URL ?= https://www.qnap.com/en/utilities/essentials
+# Cross-compile on host, then run qbuild inside the container.
+# The repo root is mounted so qbuild writes build/*.qpkg to the
+# working tree.
+container-build: cross-build container-qbuild
 
-install-qdk:
-	@echo "=== QDK / qbuild Setup ==="
-	@echo ""
-	@echo "qbuild was not found in PATH."
-	@echo ""
-	@echo "Option 1: Install on a QNAP NAS (easiest)"
-	@echo "  1. Visit $(QDK_URL)"
-	@echo "  2. Download QDK (QNAP Development Kit) .qpkg"
-	@echo "  3. Install via App Center on your QNAP NAS"
-	@echo "  4. Run: ssh admin@<nas> \"cd /path/to/qpkg && qbuild\""
-	@echo ""
-	@echo "Option 2: Copy qbuild from NAS to a Linux build machine"
-	@echo "  scp admin@<nas>:/usr/local/sbin/qbuild /usr/local/bin/"
-	@echo "  # Also copy supporting libraries from /usr/local/lib/qdk/"
-	@echo ""
-	@echo "Option 3: Use an unofficial Docker image with qbuild pre-installed"
-	@echo "  (Search Docker Hub for 'qnap qbuild' images)"
-	@echo ""
-	@echo "Once qbuild is available, run: make qbuild"
+# Run qbuild inside the container.  Expects the binary to already be
+# staged in shared/.  Use this when iterating on the QPKG layout
+# without recompiling Go.
+container-qbuild: check-engine stage-binary
+	$(ENGINE) run --rm \
+		-v "$(PWD):/build:Z" \
+		$(IMAGE) \
+		qbuild --force-config
 
-# Run qbuild to produce the .qpkg archive.
-# The --force-config flag registers config.local.yaml as a QPKG_CONFIG
-# so upgrades preserve operator-managed runtime config.
-qbuild: check-qbuild
-	$(QBUILD) --force-config
+# Interactive shell for debugging the build environment
+container-shell: check-engine
+	$(ENGINE) run --rm -it \
+		-v "$(PWD):/build:Z" \
+		--entrypoint /bin/bash \
+		$(IMAGE)
 
-# One-step: cross-compile then build the QPKG.
-qpkg: cross-build check-qbuild
+# ------------------------------------------------------------------
+# Helpers
+# ------------------------------------------------------------------
+
+stage-binary:
 	cp $(DIST_DIR)/$(BINARY)-$(GOARCH) $(SHARED)/$(BINARY)
-	$(QBUILD) --force-config
 
-# Generate a qinstall.sh script for fast iteration on package-install logic
-# without rebuilding the .qpkg archive every time.
-qinstall: cross-build
-	cp $(DIST_DIR)/$(BINARY)-$(GOARCH) $(SHARED)/$(BINARY)
-	@echo "#!/bin/sh" > qinstall.sh
-	@echo "# Unpacked QPKG installer for fast iteration." >> qinstall.sh
-	@echo "# Generated by 'make qinstall'. Edit shared/ files and re-run this script." >> qinstall.sh
-	@echo "" >> qinstall.sh
-	@echo "QPKG_NAME=qnap-docker-mdns" >> qinstall.sh
-	@echo "INSTALL_ROOT=/tmp/qnap-docker-mdns-qpkg" >> qinstall.sh
-	@echo "" >> qinstall.sh
-	@echo "# Copy the shared/ payload to a temporary root that mirrors" >> qinstall.sh
-	@echo "# the QNAP-managed QPKG install path." >> qinstall.sh
-	@echo "rm -rf \$${INSTALL_ROOT}" >> qinstall.sh
-	@echo "mkdir -p \$${INSTALL_ROOT}" >> qinstall.sh
-	@echo "cp -r shared/* \$${INSTALL_ROOT}/" >> qinstall.sh
-	@echo "cp qpkg.cfg \$${INSTALL_ROOT}/" >> qinstall.sh
-	@echo "" >> qinstall.sh
-	@echo "echo \"Payload staged at \$${INSTALL_ROOT}\"" >> qinstall.sh
-	@echo "echo \"Copy to the NAS or test environment:\"" >> qinstall.sh
-	@echo "echo \"  scp -r \$${INSTALL_ROOT}/* admin@<nas>:<qpkgs-dir>/qnap-docker-mdns/\"" >> qinstall.sh
-	@chmod +x qinstall.sh
-	@echo "Created: qinstall.sh"
-	@echo "Edit shared/ files, then run: sh qinstall.sh"
-
-check-qbuild:
-	@command -v $(QBUILD) >/dev/null 2>&1 || { \
-		echo "Error: qbuild not found in PATH."; \
-		echo "Run 'make install-qdk' for setup instructions."; \
+check-engine:
+	@if [ -z "$(ENGINE)" ]; then \
+		echo "Error: neither podman nor docker found in PATH."; \
+		echo "Install Podman: brew install podman"; \
+		echo "Install Docker: https://docker.com"; \
 		exit 1; \
-	}
+	fi
