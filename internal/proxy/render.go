@@ -1,11 +1,10 @@
 package proxy
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"sort"
-
-	"gopkg.in/yaml.v3"
 )
 
 type RuleEntry struct {
@@ -35,7 +34,7 @@ func ReadJSON(path string) (*ReverseProxyJSON, error) {
 		return nil, fmt.Errorf("reading %s: %w", path, err)
 	}
 	var rp ReverseProxyJSON
-	if err := yaml.Unmarshal(data, &rp); err != nil {
+	if err := json.Unmarshal(data, &rp); err != nil {
 		return nil, fmt.Errorf("parsing %s: %w", path, err)
 	}
 	if rp.List == nil {
@@ -45,7 +44,7 @@ func ReadJSON(path string) (*ReverseProxyJSON, error) {
 }
 
 func WriteJSON(path string, rp *ReverseProxyJSON) error {
-	data, err := yaml.Marshal(rp)
+	data, err := json.Marshal(rp)
 	if err != nil {
 		return fmt.Errorf("marshalling: %w", err)
 	}
@@ -82,7 +81,7 @@ func DiscoverLocalAccessProfile(path string) (int, bool) {
 			Name string `json:"name"`
 		} `json:"list"`
 	}
-	if err := yaml.Unmarshal(data, &profiles); err != nil {
+	if err := json.Unmarshal(data, &profiles); err != nil {
 		return 0, false
 	}
 	for _, p := range profiles.List {

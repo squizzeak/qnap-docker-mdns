@@ -53,3 +53,7 @@ func (a *ConfigAdapter) MaxBackups() int {
 func (a *ConfigAdapter) LockFilePath() string {
 	return a.Config.State.LockFile
 }
+
+func (a *ConfigAdapter) NoticeStateFile() string {
+	return a.Config.State.NoticeStateFile
+}

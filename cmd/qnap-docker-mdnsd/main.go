@@ -31,6 +31,11 @@ func main() {
 		}
 	}
 
+	if err := os.MkdirAll(cfg.State.RuntimeDir, 0755); err != nil {
+		fmt.Fprintf(os.Stderr, "runtime dir: %v\n", err)
+		os.Exit(1)
+	}
+
 	lock := state.NewLock(cfg.State.LockFile)
 	acquired, err := lock.Acquire()
 	if err != nil {
@@ -43,11 +48,6 @@ func main() {
 		os.Exit(1)
 	}
 	defer lock.Release()
-
-	if err := os.MkdirAll(cfg.State.RuntimeDir, 0755); err != nil {
-		fmt.Fprintf(os.Stderr, "runtime dir: %v\n", err)
-		os.Exit(1)
-	}
 
 	dockerClient, err := dockerpkg.NewClient(cfg.Docker.Socket, cfg.ProbeTimeout.Duration)
 	if err != nil {

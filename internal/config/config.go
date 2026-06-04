@@ -85,8 +85,8 @@ func DefaultConfig() *Config {
 			JSONDB:            "/etc/config/reverseproxy/reverseproxy.json",
 			ConfDir:           "/etc/reverseproxy/extra",
 			ApacheListenPort:  80,
-			ReloadCommand:     "/usr/local/apache/bin/apache_proxy -k graceful -f /etc/apache-sys-proxy.conf",
-			ValidateCommand:   "/usr/local/apache/bin/apache_proxy -t -f /etc/apache-sys-proxy.conf",
+			ReloadCommand:     "/usr/sbin/reverseproxy -k graceful -f /etc/reverseproxy/reverseproxy.conf",
+			ValidateCommand:   "/usr/local/apache/bin/apache -t -f /etc/reverseproxy/reverseproxy.conf",
 			AccessProfileName: "local",
 		},
 		Docker: DockerConfig{

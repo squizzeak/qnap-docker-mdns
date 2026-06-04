@@ -4,8 +4,8 @@ reverse_proxy:
   json_db: /etc/config/reverseproxy/reverseproxy.json
   conf_dir: /etc/reverseproxy/extra
   apache_listen_port: 80
-  reload_command: /usr/local/apache/bin/apache_proxy -k graceful -f /etc/apache-sys-proxy.conf
-  validate_command: /usr/local/apache/bin/apache_proxy -t -f /etc/apache-sys-proxy.conf
+  reload_command: /usr/sbin/reverseproxy -k graceful -f /etc/reverseproxy/reverseproxy.conf
+  validate_command: /usr/local/apache/bin/apache -t -f /etc/reverseproxy/reverseproxy.conf
   access_profile_name: local
 
 docker:

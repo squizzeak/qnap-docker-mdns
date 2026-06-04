@@ -1,9 +1,8 @@
 package proxy
 
 import (
+	"encoding/json"
 	"os"
-
-	"gopkg.in/yaml.v3"
 )
 
 type SyncResult struct {
@@ -25,8 +24,8 @@ func NewManager() *Manager {
 }
 
 func (m *Manager) Sync(current, updated *ReverseProxyJSON, cfg SyncConfig) SyncResult {
-	renderStr := yamlMarshal(updated)
-	currentStr := yamlMarshal(current)
+	renderStr := jsonStr(updated)
+	currentStr := jsonStr(current)
 
 	if renderStr == currentStr {
 		return SyncResult{Success: true}
@@ -70,8 +69,8 @@ func (m *Manager) Sync(current, updated *ReverseProxyJSON, cfg SyncConfig) SyncR
 	return SyncResult{Success: true}
 }
 
-func yamlMarshal(v interface{}) string {
-	data, _ := yaml.Marshal(v)
+func jsonStr(v interface{}) string {
+	data, _ := json.Marshal(v)
 	return string(data)
 }
 

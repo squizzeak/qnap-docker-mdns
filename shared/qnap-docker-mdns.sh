@@ -18,6 +18,9 @@ case "${1}" in
       exit 0
     fi
 
+    # Ensure runtime directories exist
+    mkdir -p /var/run/${QPKG_NAME}
+
     # Check if already running
     if [ -f "${LOCK_FILE}" ]; then
       PID=$(cat "${LOCK_FILE}" 2>/dev/null)
@@ -26,8 +29,6 @@ case "${1}" in
         exit 0
       fi
     fi
-
-    mkdir -p /var/run/${QPKG_NAME}
 
     echo "Starting ${QPKG_NAME}..."
     ${DAEMON_BIN} -config "${CONFIG_DIR}/config.yaml" &

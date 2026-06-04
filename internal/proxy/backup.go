@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -8,8 +9,6 @@ import (
 	"sort"
 	"strings"
 	"time"
-
-	"gopkg.in/yaml.v3"
 )
 
 func CreateDatedBackup(jsonPath string, maxBackups int) (string, error) {
@@ -63,7 +62,7 @@ func PruneBackups(dir string, maxBackups int) {
 }
 
 func AtomicWriteJSON(path string, rp *ReverseProxyJSON) error {
-	data, err := yaml.Marshal(rp)
+	data, err := json.Marshal(rp)
 	if err != nil {
 		return fmt.Errorf("marshal: %w", err)
 	}

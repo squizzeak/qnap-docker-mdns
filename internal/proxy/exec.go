@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -25,6 +26,7 @@ func RunCommand(command string) ExecResult {
 	cmd := exec.Command(name, args...)
 	stderr := new(strings.Builder)
 	cmd.Stderr = stderr
+	cmd.Env = append(os.Environ(), "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
 
 	err := cmd.Run()
 	duration := time.Since(start)
