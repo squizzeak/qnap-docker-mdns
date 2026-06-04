@@ -3,7 +3,7 @@
 # Provides QDK (qbuild) and Go toolchain for QPKG assembly.
 # Use via: make container-image container-qbuild container-build
 #
-FROM ubuntu:22.04
+FROM --platform=linux/amd64 ubuntu:22.04
 
 ARG QDK_VERSION=2.5.0
 ARG GO_VERSION=1.25.0

@@ -24,5 +24,8 @@ Thumbs.db
 *.qpkg
 *.qdk
 
+# Staged binary
+/shared/qnap-docker-mdnsd
+
 # Local config (not the sample)
 config.local.yaml
