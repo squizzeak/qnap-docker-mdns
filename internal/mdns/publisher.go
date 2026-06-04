@@ -41,7 +41,7 @@ func (p *Publisher) Publish(hostname, ip string) error {
 	}
 	p.mu.Unlock()
 
-	cmd := exec.Command("avahi-publish-address", "-a", hostname, ip)
+	cmd := exec.Command("avahi-publish-address", "-R", "-a", hostname, ip)
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("start avahi-publish-address %s %s: %w", hostname, ip, err)
 	}
