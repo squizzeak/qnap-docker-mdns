@@ -73,13 +73,43 @@ Example entry:
     "server_name": "plex.example.com",
     "hsts": false,
     "host_name": "localhost",
-    "access": 0,
+    "access": 1,
     "port": 80,
     "des_port": 5055,
     "proxy_timeout": 60,
     "header": []
 }
 ```
+
+### Access control profiles
+
+QNAP stores reverse proxy access-control profiles in:
+
+    /etc/config/reverseproxy/access.json
+
+and generates Apache include fragments in:
+
+    /etc/reverseproxy/access/
+
+Observed built-in `local` profile:
+
+- `access.json` entry `id: 1`, `name: "local"`
+- generated Apache include path: `/etc/reverseproxy/access/1.conf`
+
+Observed reverse proxy generation behavior from `/etc/init.d/reverse_proxy.sh`:
+
+- each reverse proxy rule may carry an `access` field in
+  `reverseproxy.json`
+- when `access` is non-zero and the corresponding include file exists, QNAP
+  emits `Include /etc/reverseproxy/access/<id>.conf` inside the generated
+  `VirtualHost`
+- observed testing on at least one target NAS shows unknown additional fields in
+  `reverseproxy.json` survive both `scan_config` regeneration and a QNAP UI
+  edit/save round trip
+
+For this package, generated reverse proxy rules must always use the built-in
+`local` access profile by setting `access: 1` in JSON and including
+`/etc/reverseproxy/access/1.conf` in the managed Apache `VirtualHost`.
 
 ### scan_config behavior
 
@@ -182,6 +212,8 @@ The managed block is written directly into the per-port file (e.g.,
     ServerName grafana.local
     ServerAlias metrics.local graphs.local
 
+    Include /etc/reverseproxy/access/1.conf
+
     ProxyPreserveHost on
 
     ProxyPass / http://localhost:3000/ connectiontimeout=60 timeout=60
@@ -195,6 +227,10 @@ Only the managed section should be modified.
 
 All generated backends must target `http://localhost:<selected-host-published-port>/`.
 
+All generated Apache `VirtualHost` entries must include
+`/etc/reverseproxy/access/1.conf` so the built-in QNAP `local` access-control
+profile is always applied to mDNS-published names.
+
 Each generated reverse proxy entry must include a human-visible managed label
 such as `# qnap-docker-mdns: <primary-hostname> (managed)` immediately above
 the `VirtualHost` so administrators can see that the rule is daemon-managed and
@@ -204,6 +240,11 @@ should not be edited by hand.
 
 A matching entry is written to `/etc/config/reverseproxy/reverseproxy.json` so
 the rule appears in the QNAP UI with the Rule Name column showing `(managed)`.
+
+Daemon ownership of JSON entries must NOT be inferred from the human-visible
+`name` field alone. Ownership is tracked directly inside each daemon-managed
+JSON rule through custom fields that survive QNAP regeneration and UI saves, so
+the daemon can update only the entries it created.
 
 Generated JSON entry:
 
@@ -218,11 +259,13 @@ Generated JSON entry:
             "server_name": "grafana.local",
             "hsts": false,
             "host_name": "localhost",
-            "access": 0,
+            "access": 1,
             "port": 80,
             "des_port": 3000,
             "proxy_timeout": 60,
-            "header": []
+            "header": [],
+            "qnap_docker_mdns_managed": true,
+            "qnap_docker_mdns_key": "container:grafana|hostname:grafana.local"
         }
     }
 }
@@ -234,8 +277,13 @@ Rule name convention:
   clearly shows which rules are daemon-managed.
 - `server_name`: the generated hostname (e.g., `grafana.local`).
 - `host_name`: `localhost` (backends always target `localhost`).
+- `access`: `1` so QNAP applies the built-in `local` access-control profile.
 - `des_port`: the selected host-published backend port.
 - `port`: the Apache listening port this rule belongs to (typically `80`).
+- `qnap_docker_mdns_managed`: `true` so the daemon can recognize entries it owns
+  without relying on the display name.
+- `qnap_docker_mdns_key`: the stable managed-rule identity used to match an
+  existing owned entry even if other editable fields change.
 
 ID assignment:
 
@@ -246,10 +294,23 @@ ID assignment:
   list limit). The daemon must respect this limit: if adding a new
   managed rule would exceed 64 total entries, do not add it and emit a
   user-visible notice.
-- Track assigned IDs in the daemon's persistent state so re-reconciliation
+- Track assigned IDs in the managed JSON entries themselves so re-reconciliation
   updates the same rule in place rather than creating duplicates.
-- When a managed container is removed, delete its JSON entry and free the
-  ID slot for future use.
+- Mark daemon-owned JSON entries with `qnap_docker_mdns_managed: true` and a
+  stable `qnap_docker_mdns_key` derived from the managed rule identity.
+- The embedded ownership marker and key are the source of truth for which JSON
+  entries the daemon may update or delete; the display `name` suffix is
+  informational only.
+- Any JSON entry that lacks `qnap_docker_mdns_managed: true` must be treated as
+  unmanaged by default.
+- Missing custom ownership fields must never cause missing-key errors; absent
+  `qnap_docker_mdns_managed` means "not ours", and `qnap_docker_mdns_key` must
+  only be read after the managed marker is present and true.
+- When a managed container is removed, delete only the JSON entry whose custom
+  ownership marker is present and whose `qnap_docker_mdns_key` matches that
+  managed rule.
+- If a marked entry is malformed or missing its stable key, do not mutate it
+  automatically; emit an operational failure so an administrator can inspect it.
 
 ---
 
@@ -282,13 +343,21 @@ If markers already exist, replace the content between them.
 
 On every reconciliation:
 
-1. Read `/etc/config/reverseproxy/reverseproxy.json`.
-2. Remove any existing entries whose `name` ends with ` (managed)` to avoid
-   accumulating stale managed rules.
-3. Add a fresh entry for each active managed rule with the next available ID
-   (max existing ID + 1).
-4. Write the updated JSON back.
-5. Do NOT call `scan_config` after writing — doing so would delete the managed
+1. Complete Apache render, validation, atomic managed-block update, and reverse
+   proxy reload first.
+2. Only after the Apache config is live, read
+   `/etc/config/reverseproxy/reverseproxy.json`.
+3. Scan the JSON entries for daemon ownership markers and stable keys, treating
+   any entry without `qnap_docker_mdns_managed: true` as unmanaged.
+4. For each active managed rule, update the existing owned JSON entry in place
+   when a marked entry with the matching stable key already exists.
+5. For each active managed rule that has no owned JSON entry yet, allocate the
+   next available `id` (`max_id + 1`), create the JSON entry, and persist the
+   new ownership marker fields in that entry.
+6. Remove only JSON entries that are explicitly marked as daemon-managed and no
+   longer have a matching active managed rule by stable key.
+7. Write the updated JSON back.
+8. Do NOT call `scan_config` after writing — doing so would delete the managed
    block markers from the per-port file. Instead, rely on the managed block in
    the per-port file for immediate routing.
 
@@ -397,8 +466,8 @@ Subscribe to:
 Event handling rules:
 
 - Treat any Docker event for a tracked container as a signal to re-inspect that container's current labels and published-port bindings.
-- If the Docker event stream does not expose label mutations directly, use the event as a trigger to re-read container metadata from the Docker API.
-- Label removal or label value changes that make a container no longer eligible must remove its reverse proxy mapping and terminate its Avahi publishers on the next reconciliation pass.
+- Treat lifecycle events as a trigger to re-read container metadata from the Docker API rather than trusting event payloads alone.
+- Container stop, destroy, rename, or replacement events that make a container no longer eligible must remove its reverse proxy mapping and terminate its Avahi publishers on the next reconciliation pass.
 - Run a periodic full rescan as a safety net so missed or coalesced Docker events cannot leave stale reverse proxy or mDNS state behind.
 - Use a default debounce window of 500ms after the most recent event before reconciling.
 - Run a full rescan every 5 minutes by default, with a small startup jitter, and make the interval configurable.
@@ -472,7 +541,9 @@ Implementation approach:
 1. Discover the supported NAS LAN IPv4 addresses from the QNAP itself.
 2. For each active hostname and each supported NAS LAN IPv4 address, launch an `avahi-publish-address -a` process.
 3. Keep those publisher processes running as long as the container mapping is active.
-4. Terminate and remove the publishers when the container stops, is renamed, labels change, or the supported NAS LAN IPv4 address set changes.
+4. Terminate and remove the publishers when the container stops, is renamed,
+   is replaced by an ineligible container instance, or the supported NAS LAN
+   IPv4 address set changes.
 5. Reconcile publishers after daemon restart so orphaned Avahi processes are not left behind.
 
 Reverse proxy backends must use `localhost:<selected-host-published-port>` rather than container DNS names or container bridge IP addresses.
@@ -617,7 +688,6 @@ state:
   runtime_dir: /var/run/qnap-docker-mdns
   notice_state_file: /var/run/qnap-docker-mdns/notice-state.json
   lock_file: /var/run/qnap-docker-mdns/daemon.lock
-  json_id_map: /var/run/qnap-docker-mdns/json-id-map.json
 ```
 
 ---
@@ -632,8 +702,6 @@ Persisted state must include:
 - the metadata needed to emit exactly one matching recovery notice after the problem clears
 - active `avahi-publish-address` ownership metadata if needed to clean up orphaned processes safely
 - daemon lock ownership metadata such as PID and startup time for diagnostics
-- JSON-to-ServerName mapping for all managed entries in `reverseproxy.json`, so
-  reconciliation can update in-place (by ID) rather than deleting and re-creating
 
 Persistence rules:
 
@@ -732,6 +800,8 @@ Actionable misconfiguration includes:
 - `qnap-docker-mdns.port` set to a value that does not match a host-published TCP port
 - enabled container with no suitable host-published TCP port
 - malformed hostname or alias labels
+- requested primary hostname collides with an unmanaged reverse proxy `ServerName` or `ServerAlias`
+- requested alias collides with an unmanaged reverse proxy `ServerName` or `ServerAlias`
 - requested primary hostname collides with an existing mDNS advertisement that resolves outside the selected NAS LAN IPv4 address set
 
 Operational failures that must notify and log include:
@@ -793,12 +863,15 @@ Before marking a reconciliation successful:
 2. Validate syntax with a QTS-compatible command verified during platform integration.
 3. Replace managed block.
 4. Reload proxy.
-5. Start or reconcile Avahi publishers.
-6. Verify reverse proxy reload and mDNS resolution succeed.
+5. Synchronize `reverseproxy.json` using embedded ownership markers.
+6. Start or reconcile Avahi publishers.
+7. Verify reverse proxy reload and mDNS resolution succeed.
 
 Rollback rules:
 
-- Roll back generated reverse proxy config when config validation, config write, or reverse proxy reload fails.
+- Roll back generated Apache reverse proxy config when config validation, Apache config write, or reverse proxy reload fails.
+- Do not modify `reverseproxy.json` unless the Apache config update and reload have already succeeded.
+- If `reverseproxy.json` or JSON ownership-state synchronization fails after the Apache reload has already succeeded, keep the live Apache config in place, treat the JSON sync failure as an operational failure, and retry JSON synchronization until it succeeds or the managed rule becomes ineligible.
 - If mDNS publication fails after the reverse proxy reload has already succeeded, keep the reverse proxy route active, mark mDNS publication incomplete, and retry de-announcement and re-announcement until publication succeeds or the container becomes ineligible.
 
 Operational failures must be retried with backoff.
@@ -837,16 +910,21 @@ Validation command rules:
 Scope:
 
 - confirm reverse proxy config path and reload behavior on target QTS versions
+- confirm reverse proxy access-profile path and built-in `local` profile ID on target QTS versions
 - confirm `/var/run/docker.sock` access from the QPKG service context
 - confirm `notice_log_tool`, `logger`, `avahi-publish-address`, and `ip route` availability on target systems
 - confirm Apache-native validation and graceful reload commands on target systems
+- confirm whether arbitrary custom fields such as `managed` survive QNAP UI save
+  and `scan_config` regeneration unchanged in `reverseproxy.json`
 
 Deliverables:
 
 - verified reverse proxy reload command default
 - verified reverse proxy validation command default
+- verified reverse proxy access-profile default for built-in `local` rules
 - verified QNAP notice and logging command shapes
 - verified Docker socket access assumptions
+- verified custom JSON ownership-marker fields for managed reverse proxy rules
 - short compatibility notes for tested QTS environments
 
 Exit criteria:
@@ -854,13 +932,19 @@ Exit criteria:
 - the daemon can reach Docker through `/var/run/docker.sock`
 - the selected reload command works on the target NAS
 - the selected validation command works on the target NAS
+- the built-in `local` access profile mapping is confirmed for the target NAS
 - the prescribed QNAP notice, recovery-notice, and logging commands are confirmed
+- custom JSON ownership-marker fields in `reverseproxy.json` are confirmed to
+  survive the target NAS UI and regeneration paths
 
 Task list:
 
 - inspect the target NAS for `/etc/reverseproxy/extra/80.conf` and confirm expected include behavior
+- inspect `/etc/config/reverseproxy/access.json` and `/etc/reverseproxy/access/*.conf` and confirm the built-in `local` profile ID and include path
 - test Apache-native config validation and graceful reload commands against the active reverse proxy binary and config before relying on QNAP wrapper scripts
 - test each candidate reverse proxy reload command and record the working default
+- test whether custom ownership-marker fields survive QNAP UI edits and
+  regeneration unchanged in `reverseproxy.json`
 - verify the QPKG service user can open `/var/run/docker.sock`
 - verify `notice_log_tool`, `logger`, `avahi-publish-address`, and `ip route` can be executed from the service environment
 - verify warning, error, and notice entries from `notice_log_tool` appear as expected in the QNAP notice UI
@@ -940,6 +1024,7 @@ Scope:
 - render managed `VirtualHost` entries for the per-port Apache file
 - render matching JSON entries for `/etc/config/reverseproxy/reverseproxy.json`
 - generate `localhost:<host-published-port>` backends only
+- hardcode the built-in QNAP `local` access profile for all generated rules
 - preserve unmanaged reverse proxy configuration
 - detect hostname collisions before rendering
 - render non-conflicting aliases as `ServerAlias`
@@ -953,13 +1038,17 @@ Deliverables:
 - hostname-collision detection against managed and unmanaged `ServerName` and `ServerAlias` entries
 - deterministic alphanumeric managed-name conflict resolution
 - human-visible managed labeling for each generated reverse proxy entry
-- QNAP JSON rule rendering with `(managed)` suffix in the `name` field
+- QNAP JSON rule rendering with `(managed)` suffix in the `name` field and
+  embedded `qnap_docker_mdns_managed` / `qnap_docker_mdns_key` ownership markers
+- QNAP access-profile rendering that always sets `access: 1` and includes
+  `/etc/reverseproxy/access/1.conf`
 
 Exit criteria:
 
 - generated Apache config contains only managed changes
-- generated JSON rules use sequential IDs following the existing max ID in `reverseproxy.json`, with `(managed)` in the `name` field
+- generated JSON rules use sequential IDs following the existing max ID in `reverseproxy.json` for new rules, preserve IDs for existing owned rules matched by embedded ownership key, and include `(managed)` in the `name` field
 - rendered backends always target `localhost`
+- generated Apache and JSON rules always use the built-in `local` access profile
 - conflicting hostnames never produce ambiguous rendered output
 - colliding aliases are skipped while non-conflicting aliases still render as `ServerAlias`
 - managed-name collisions resolve deterministically according to the stable normalized alphanumeric ordering
@@ -970,7 +1059,9 @@ Task list:
 - design the managed block format and marker placement
 - design the QNAP JSON rule schema for each managed entry
 - implement vhost rendering for the selected hostname set and host-published port
-- implement JSON rule rendering with next-available ID assignment and `(managed)` in the `name` field
+- implement JSON rule rendering with next-available ID assignment for new owned rules, in-place updates for existing owned rules matched by embedded ownership key, `(managed)` in the `name` field, and custom ownership-marker fields
+- emit `Include /etc/reverseproxy/access/1.conf` in every generated `VirtualHost`
+- set `access: 1` in every generated JSON rule
 - emit a human-visible managed label such as `<primary-hostname> (managed)` for each generated reverse proxy entry without changing routed hostnames
 - render the primary hostname as `ServerName` and remaining non-conflicting aliases as `ServerAlias`
 - apply the stable normalized alphanumeric winner rule before rendering managed hostnames and aliases
@@ -987,7 +1078,7 @@ Scope:
 - create backup on first write
 - replace or append the managed block in the per-port Apache file atomically
 - synchronize the QNAP JSON config database with matching managed entries
-- validate generated Apache config and roll back on failure
+- validate generated Apache config and roll back on failure before any JSON mutation
 - validate through a concrete QTS-supported command path
 - handle duplicate removal when QNAP's `scan_config` has already written
   managed rules into the per-port file from JSON
@@ -997,8 +1088,8 @@ Deliverables:
 
 - backup creation logic for the per-port Apache file
 - atomic write path for the per-port file
-- JSON database read/write path with next-ID assignment and 64-rule limit
-- rollback path for invalid config or failed commit
+- JSON database read/write path with embedded ownership markers, next-ID assignment for new rules, and 64-rule limit after Apache success
+- rollback path for invalid Apache config or failed Apache commit, plus retry-only handling for post-reload JSON sync failure
 - concrete validation command integration
 - duplicate VirtualHost detection and removal for `scan_config`-generated entries
 - uninstall reconciliation path that removes JSON entries and empties the
@@ -1011,23 +1102,29 @@ Exit criteria:
   after reconciliation
 - duplicate VirtualHost entries for managed ServerNames are never left in the
   per-port file alongside the managed block
-- failed writes or validation errors restore the prior good state
+- failed Apache writes, validation errors, or reload failures restore the prior
+  good Apache state without mutating `reverseproxy.json`
 - the 64-rule limit is respected: no more than 64 total entries exist in
   `reverseproxy.json` after any reconciliation
+- existing owned JSON rules preserve their assigned IDs across reconciliation by
+  matching embedded ownership keys
 
 Task list:
 
 - create the one-time backup path for `/etc/reverseproxy/extra/80.conf`
 - implement JSON database file read, merge, and write with atomic replacement
+  only after Apache validation, managed-block commit, and reload succeed
 - implement next-ID assignment by scanning existing JSON entries for the
   maximum `id` value
 - enforce the 64-rule limit: count total entries before adding, skip and notify
   if the limit would be exceeded
-- remove stale managed entries from JSON whose `name` ends with ` (managed)`
-  but no longer have a matching active container
-- add or update managed rules in JSON using the tracked ID map, creating new
-  entries with `max_id + 1` when no prior ID exists for a container
-- persist the JSON ID-to-ServerName map across daemon restarts
+- remove stale managed entries from JSON only when they are marked with
+  `qnap_docker_mdns_managed: true` and no longer have a matching active
+  container by stable key
+- add or update managed rules in JSON by matching `qnap_docker_mdns_key`,
+  creating new entries with `max_id + 1` only when no prior owned entry exists
+- treat entries that lack `qnap_docker_mdns_managed: true` as unmanaged and
+  skip them without attempting to read `qnap_docker_mdns_key`
 - implement managed-block replace-or-append behavior in the per-port file
 - before writing the managed block, read the per-port file and remove any
   VirtualHost blocks whose `ServerName` matches a managed rule (these are
@@ -1036,6 +1133,9 @@ Task list:
 - validate the generated config before committing it as the active file using
   the platform-confirmed command
 - restore the prior good config if validation or commit fails
+- if Apache reload succeeds but JSON synchronization fails, leave the live
+  managed block in place, emit an operational failure, and retry only the JSON
+  synchronization path
 - implement uninstall reconciliation that removes JSON entries and empties
   the managed block while leaving user-edited entries untouched
 
@@ -1108,7 +1208,7 @@ Task list:
 - detect existing mDNS advertisements for requested hostnames before publishing
 - refuse to publish a primary hostname in both mDNS and generated reverse proxy configuration when any existing advertisement resolves outside the selected NAS LAN IPv4 address set and the daemon is not taking ownership
 - skip only the specific aliases whose existing advertisements resolve outside the selected NAS LAN IPv4 address set
-- stop publishers when a container stops, labels change, or the hostname set is reduced
+- stop publishers when a container stops, is replaced by an ineligible instance, or the hostname set is reduced
 - stop or replace publishers when the supported NAS LAN IPv4 address set changes
 - de-announce any daemon-owned stale advertisement before retrying publication of the same hostname and IP pair
 - on startup, inspect running `avahi-publish-address` helpers through command-line or equivalent runtime metadata to recover their advertised `hostname + IP` pairs
@@ -1127,6 +1227,7 @@ Scope:
 - retry operational failures with exponential backoff and jitter
 - persist open-problem state across daemon restart
 - notify the user about blocked publication caused by conflicting existing mDNS advertisements
+- notify the user about blocked publication caused by conflicting unmanaged reverse proxy hostnames or aliases
 
 Deliverables:
 
@@ -1137,6 +1238,7 @@ Deliverables:
 - notice deduplication, open-problem tracking, and recovery signaling
 - persisted notice-state store under the runtime directory
 - collision-notice handling for blocked mDNS publication
+- collision-notice handling for blocked mDNS publication and unmanaged reverse proxy hostname collisions
 - config loader that merges package defaults with runtime-local overrides
 
 Exit criteria:
@@ -1157,6 +1259,7 @@ Task list:
 - implement per-domain retry state with exponential backoff and jitter
 - reset retry state after one successful reconciliation in the affected domain
 - emit a user-visible notice when a hostname is blocked by an existing non-NAS mDNS advertisement
+- emit a user-visible notice when a primary hostname is blocked by an unmanaged reverse proxy `ServerName` or `ServerAlias`, and when an alias is skipped for that reason
 
 ### Stage 9: Event Loop
 
@@ -1166,7 +1269,7 @@ Scope:
 - debounce rapid event bursts
 - merge event-driven reconciliation with scheduled retry work
 - enforce single-instance execution and serialized reconciliation
-- detect eligibility changes caused by label removal or label value updates
+- detect eligibility changes caused by container lifecycle changes, replacement, rename, or published-port changes observed during reconciliation
 
 Deliverables:
 
@@ -1179,7 +1282,7 @@ Deliverables:
 Exit criteria:
 
 - start, stop, die, destroy, and rename events trigger correct reconciliation
-- label removal or label value changes remove stale reverse proxy and mDNS state on reconciliation
+- container stop, destroy, rename, or replacement with an ineligible instance removes stale reverse proxy and mDNS state on reconciliation
 - transient failures recover without requiring daemon restart
 - a second daemon instance cannot start while the first one holds the lock
 
@@ -1190,8 +1293,11 @@ Task list:
 - merge event-driven reconciliation and scheduled retry work into a single coordinator
 - ensure overlapping reconciliation requests collapse safely into the latest desired state
 - re-inspect container labels and published-port bindings during reconciliation rather than trusting event payloads alone
-- remove reverse proxy entries and Avahi publishers when labels are removed or changed so the container is no longer eligible
-- add a periodic full rescan to catch missed label changes or missed stop/remove events
+- remove reverse proxy entries and Avahi publishers when a container stops,
+  is destroyed, is renamed out of eligibility, or is replaced by an ineligible
+  instance
+- add a periodic full rescan to catch missed stop/remove/rename events and
+  container replacement that changed eligibility
 - clear resolved failure notification state only after sending the matching recovery notice
 - acquire and hold an exclusive lock for the daemon lifetime
 - make the QPKG control script refuse duplicate starts when the lock is already held
@@ -1278,7 +1384,8 @@ Task list:
 - test alias collisions and verify only the colliding aliases are skipped while valid aliases still route and publish
 - test existing primary mDNS collision on a non-NAS IP and verify both mDNS publication and reverse proxy publication are refused with a user-visible notice unless exact-match ownership is adopted
 - test reverse proxy config generation, validation, commit, and reload success paths
-- test JSON write path: verify a managed entry appears in `/etc/config/reverseproxy/reverseproxy.json` with `(managed)` in the `name` field, correct `server_name`, `host_name: localhost`, `des_port`, and `port: 80`
+- test JSON write path: verify a managed entry appears in `/etc/config/reverseproxy/reverseproxy.json` with `(managed)` in the `name` field, correct `server_name`, `host_name: localhost`, `access: 1`, `des_port`, `port: 80`, `qnap_docker_mdns_managed: true`, and the expected `qnap_docker_mdns_key`
+- test Apache render path: verify each generated managed `VirtualHost` includes `/etc/reverseproxy/access/1.conf`
 - test next-ID assignment: verify the JSON entry's `id` is `max(existing_ids) + 1`
 - test managed block + JSON consistency: after reconciliation, verify the managed block in `80.conf` and the JSON entry have matching hostnames and ports
 - test `scan_config` recovery: trigger QNAP's `scan_config`, verify the managed block is wiped from `80.conf`, then trigger daemon reconciliation and verify the managed block is restored without duplicate VirtualHost entries for the same ServerName
@@ -1286,7 +1393,7 @@ Task list:
 - test mDNS publication failure after successful reverse proxy reload and verify the route stays active while re-announcement retries continue
 - test Avahi publication, resolution, cleanup, and restart reconciliation
 - test upgrade behavior and verify existing reverse proxy config remains in place while mDNS announcements are re-announced after daemon restart
-- test label removal and label changes that make a container ineligible and verify reverse proxy and mDNS cleanup occurs
+- test container replacement, stop, destroy, and rename cases that make a container ineligible and verify reverse proxy and mDNS cleanup occurs
 - test notice deduplication for repeated failures
 - test recovery notices using `notice_log_tool --severity 5` for both misconfiguration and operational recovery paths
 - test daemon restart during an open problem and verify deduplicated notice and recovery behavior remain correct
@@ -1345,42 +1452,46 @@ labels:
 4. Configuration automatically generated for the selected backend port.
 5. Generated reverse proxy backend targets `localhost:<host-published-port>`.
 6. A managed VirtualHost block with `# BEGIN qnap-docker-mdns managed` / `# END` markers is written to `/etc/reverseproxy/extra/80.conf`.
-7. A matching JSON entry exists in `/etc/config/reverseproxy/reverseproxy.json` with `"name": "<primary-hostname> (managed)"` so the QNAP UI Rule Name column shows the managed label.
-8. The JSON entry uses the next available sequential ID after the maximum existing ID in the file.
-9. QNAP reverse proxy reloaded.
-10. `avahi-publish-address -a` is started for each published hostname and supported NAS LAN IPv4 address.
-11. `http://<container>.local` works.
-12. A valid non-colliding alias routes successfully through the generated Apache `ServerAlias` entry.
-13. `avahi-browse` shows the expected published hostname/address advertisements.
-14. Repeated `avahi-resolve-host-name <container>.local` checks resolve to advertised NAS LAN IPv4 addresses.
-15. Repeated `avahi-resolve-host-name <alias>.local` checks resolve to advertised NAS LAN IPv4 addresses for a valid non-colliding alias.
-16. Stopping container removes the managed block and JSON entry, and stops the matching Avahi publisher.
-17. Removing `qnap-docker-mdns` labels, or changing them so the container is no longer eligible, removes the managed block and JSON entry, and stops the matching Avahi publishers.
-18. A single published port that does not return a parseable HTTP response to the configured probe is not treated as a candidate port.
-19. A container with multiple candidate ports is ignored until `qnap-docker-mdns.port` is set.
-20. An enabled container with no suitable loopback-reachable host-published TCP port is ignored.
-21. A container published only on a non-loopback host IP is treated as unsupported and is not proxied.
-22. Managed hostname and alias collisions resolve deterministically by stable normalized alphanumeric ordering, with later conflicting names skipped.
-23. An alias that collides with another managed hostname or alias is skipped while the remaining non-conflicting hostnames and aliases continue to publish.
-24. A primary hostname that collides with an unmanaged reverse proxy `ServerName` or `ServerAlias` is not published.
-25. An alias that collides with an unmanaged reverse proxy `ServerName` or `ServerAlias` is skipped while the remaining non-conflicting hostnames and aliases continue to publish.
-26. A primary hostname that already resolves through mDNS to an address outside the selected NAS LAN IPv4 address set is not published in either mDNS or the generated reverse proxy configuration unless exact-match ownership is adopted, and it produces a user-visible notice.
-27. An alias that already resolves through mDNS to an address outside the selected NAS LAN IPv4 address set is skipped while the remaining non-conflicting hostnames and aliases continue to publish, and the skipped alias produces a user-visible notice.
-28. After an external `scan_config` wipes the per-port file, the daemon's next reconciliation restores the managed block without creating duplicate VirtualHost entries for the same ServerName.
-29. The managed block and the JSON entry are always consistent after reconciliation (same hostnames, same ports).
-30. Adding a managed rule when `reverseproxy.json` already has 64 entries produces a user-visible notice and the rule is not added.
-31. An actionable misconfiguration produces one visible QNAP notice through `notice_log_tool --severity 4`.
-32. An operational failure produces both a visible QNAP notice through `notice_log_tool --severity 3` and a syslog entry through `logger`.
-33. Repeated reconciliation while the same failure persists does not spam duplicate notifications.
-34. Clearing a previously reported failure produces one notice-level QNAP recovery notice through `notice_log_tool --severity 5`.
-35. Daemon restart during an open problem does not re-emit the same failure as a new notice and still allows the matching recovery notice later.
-36. Operational failures are retried with backoff and stop retrying after recovery.
-37. mDNS publication failure after a successful reverse proxy reload leaves the HTTP route active while de-announcement and re-announcement retries continue.
-38. A duplicate daemon start is refused while the active daemon instance holds the advisory lock.
-39. Startup reconciliation may adopt an exact-match user-generated `avahi-publish-address` helper whose advertised `hostname + IP` pair matches current desired state only after recovering that pair from process-observable helper metadata; once adopted, that exact-match advertisement becomes service-managed.
-40. Stale lock-file paths without a held advisory lock do not block daemon restart after a crash.
-41. Upgrade stops the daemon, replaces the packaged binary, default assets, and `config.local.yaml.sample`, preserves `config.local.yaml`, and restarts without removing the existing managed reverse proxy config first; startup reconciliation re-announces mDNS entries.
-42. Uninstall removes only daemon-managed reverse proxy and mDNS state (JSON entries + managed block + Avahi publishers) and leaves user-managed entries intact.
+7. Each generated managed `VirtualHost` includes `/etc/reverseproxy/access/1.conf` so the built-in `local` access profile is always applied.
+8. A matching JSON entry exists in `/etc/config/reverseproxy/reverseproxy.json` with `"name": "<primary-hostname> (managed)"` so the QNAP UI Rule Name column shows the managed label.
+9. The matching JSON entry sets `"access": 1` so QNAP's generated config also uses the built-in `local` access profile.
+10. A matching JSON entry stores `"qnap_docker_mdns_managed": true` and the expected stable `"qnap_docker_mdns_key"` so the daemon can identify owned rules without relying on `/var/run` state.
+11. A newly created managed JSON entry uses the next available sequential ID after the maximum existing ID in the file, while an existing owned managed rule preserves its previously assigned ID across reconciliation.
+12. QNAP reverse proxy reloaded.
+13. `avahi-publish-address -a` is started for each published hostname and supported NAS LAN IPv4 address.
+14. `http://<container>.local` works.
+15. A valid non-colliding alias routes successfully through the generated Apache `ServerAlias` entry.
+16. `avahi-browse` shows the expected published hostname/address advertisements.
+17. Repeated `avahi-resolve-host-name <container>.local` checks resolve to advertised NAS LAN IPv4 addresses.
+18. Repeated `avahi-resolve-host-name <alias>.local` checks resolve to advertised NAS LAN IPv4 addresses for a valid non-colliding alias.
+19. Stopping a managed container removes that container's `VirtualHost` from the managed block, removes the matching JSON entry, and stops the matching Avahi publisher.
+20. Stopping, destroying, renaming, or replacing a managed container with an ineligible container instance removes that container's `VirtualHost` from the managed block, removes the matching JSON entry, and stops the matching Avahi publishers.
+21. A single published port that does not return a parseable HTTP response to the configured probe is not treated as a candidate port.
+22. A container with multiple candidate ports is ignored until `qnap-docker-mdns.port` is set.
+23. An enabled container with no suitable loopback-reachable host-published TCP port is ignored.
+24. A container published only on a non-loopback host IP is treated as unsupported and is not proxied.
+25. Managed hostname and alias collisions resolve deterministically by stable normalized alphanumeric ordering, with later conflicting names skipped.
+26. An alias that collides with another managed hostname or alias is skipped while the remaining non-conflicting hostnames and aliases continue to publish.
+27. A primary hostname that collides with an unmanaged reverse proxy `ServerName` or `ServerAlias` is not published.
+28. An alias that collides with an unmanaged reverse proxy `ServerName` or `ServerAlias` is skipped while the remaining non-conflicting hostnames and aliases continue to publish.
+29. A primary hostname that already resolves through mDNS to an address outside the selected NAS LAN IPv4 address set is not published in either mDNS or the generated reverse proxy configuration unless exact-match ownership is adopted, and it produces a user-visible notice.
+30. An alias that already resolves through mDNS to an address outside the selected NAS LAN IPv4 address set is skipped while the remaining non-conflicting hostnames and aliases continue to publish, and the skipped alias produces a user-visible notice.
+31. After an external `scan_config` wipes the per-port file, the daemon's next reconciliation restores the managed block without creating duplicate VirtualHost entries for the same ServerName.
+32. The managed block and the JSON entry are always consistent after reconciliation (same hostnames, same ports, same forced `local` access profile).
+33. Adding a managed rule when `reverseproxy.json` already has 64 entries produces a user-visible notice and the rule is not added.
+34. A primary hostname blocked by an unmanaged reverse proxy `ServerName` or `ServerAlias`, and an alias skipped for that reason, each produce a visible QNAP notice through `notice_log_tool --severity 4`.
+35. An actionable misconfiguration produces one visible QNAP notice through `notice_log_tool --severity 4`.
+36. An operational failure produces both a visible QNAP notice through `notice_log_tool --severity 3` and a syslog entry through `logger`.
+37. Repeated reconciliation while the same failure persists does not spam duplicate notifications.
+38. Clearing a previously reported failure produces one notice-level QNAP recovery notice through `notice_log_tool --severity 5`.
+39. Daemon restart during an open problem does not re-emit the same failure as a new notice and still allows the matching recovery notice later.
+40. Operational failures are retried with backoff and stop retrying after recovery.
+41. mDNS publication failure after a successful reverse proxy reload leaves the HTTP route active while de-announcement and re-announcement retries continue.
+42. A duplicate daemon start is refused while the active daemon instance holds the advisory lock.
+43. Startup reconciliation may adopt an exact-match user-generated `avahi-publish-address` helper whose advertised `hostname + IP` pair matches current desired state only after recovering that pair from process-observable helper metadata; once adopted, that exact-match advertisement becomes service-managed.
+44. Stale lock-file paths without a held advisory lock do not block daemon restart after a crash.
+45. Upgrade stops the daemon, replaces the packaged binary, default assets, and `config.local.yaml.sample`, preserves `config.local.yaml`, and restarts without removing the existing managed reverse proxy config first; startup reconciliation re-announces mDNS entries.
+46. Uninstall removes only daemon-managed reverse proxy and mDNS state (JSON entries + managed block + Avahi publishers) and leaves user-managed entries intact.
 
 ---
 
