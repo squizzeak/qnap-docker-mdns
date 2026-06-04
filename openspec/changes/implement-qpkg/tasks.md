@@ -133,10 +133,10 @@
 - [x] 12.1 Inspect `/etc/reverseproxy/extra/80.conf` and confirm expected include behavior
 - [x] 12.2 Inspect `/etc/config/reverseproxy/access.json` and `/etc/reverseproxy/access/*.conf`
 - [x] 12.3 Verify built-in `local` access-profile discovery by `name: "local"`
-- [ ] 12.4 Test fallback behavior when `local` profile is not identified (`access: 0`)
+- [x] 12.4 Test fallback behavior when `local` profile is not identified (`access: 0`)
 - [x] 12.5 Test candidate reload commands and record working defaults
 - [x] 12.6 Test candidate validate commands and record working defaults
-- [ ] 12.7 Test custom JSON ownership-marker fields survive UI saves and `scan_config`
+- [x] 12.7 Test custom JSON ownership-marker fields survive UI saves and `scan_config`
 - [x] 12.8 Verify `/var/run/docker.sock` access from QPKG service context
 - [x] 12.9 Verify `notice_log_tool`, `logger`, `avahi-publish-address`, `ip route` availability
 - [x] 12.10 Capture QTS-version-specific deviations for configurable settings
@@ -149,16 +149,16 @@
 - [x] 13.4 Test multi-port with multiple HTTP-capable endpoints requiring label (test-dual-http 8182+8183 → misconfig notice, ✅)
 - [x] 13.5 Test alias expansion and mDNS publication (test-multi aliases, ✅)
 - [x] 13.6 Test non-loopback binding rejection (all host_name: localhost, ✅)
-- [ ] 13.7 Test hostname/alias collision resolution
-- [ ] 13.8 Test mDNS collision with external address
+- [x] 13.7 Test hostname/alias collision resolution
+- [x] 13.8 Test mDNS collision with external address
 - [x] 13.9 Test JSON write, `scan_config`, validation, and reload success path (✅)
 - [x] 13.10 Test backup creation and retention pruning (12 backups, under limit, ✅)
-- [ ] 13.11 Test 64-rule limit enforcement
-- [ ] 13.12 Test rollback on validation/reload failure
-- [ ] 13.13 Test mDNS failure after proxy reload (keep route active)
+- [x] 13.11 Test 64-rule limit enforcement
+- [x] 13.12 Test rollback on validation/reload failure
+- [x] 13.13 Test mDNS failure after proxy reload (keep route active)
 - [x] 13.14 Test notice deduplication and recovery notices (misconfig dedup + recovery via problemState, ✅)
-- [ ] 13.15 Test daemon restart during open problem
+- [x] 13.15 Test daemon restart during open problem
 - [x] 13.16 Test duplicate start refusal (✅)
 - [x] 13.17 Test crash recovery (stale lock does not block restart, ✅)
-- [ ] 13.18 Test upgrade preserves config and re-announces mDNS
-- [ ] 13.19 Test uninstall removes managed config and stops publishers
+- [x] 13.18 Test upgrade preserves config and re-announces mDNS
+- [x] 13.19 Test uninstall removes managed config and stops publishers
