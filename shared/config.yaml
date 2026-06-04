@@ -1,0 +1,32 @@
+domain_suffix: local
+
+reverse_proxy:
+  json_db: /etc/config/reverseproxy/reverseproxy.json
+  conf_dir: /etc/reverseproxy/extra
+  apache_listen_port: 80
+  reload_command: /usr/local/apache/bin/apache_proxy -k graceful -f /etc/apache-sys-proxy.conf
+  validate_command: /usr/local/apache/bin/apache_proxy -t -f /etc/apache-sys-proxy.conf
+  access_profile_name: local
+
+docker:
+  socket: /var/run/docker.sock
+
+state:
+  runtime_dir: /var/run/qnap-docker-mdns
+  notice_state_file: /var/run/qnap-docker-mdns/notice-state.json
+  lock_file: /var/run/qnap-docker-mdns/daemon.lock
+
+backups:
+  max_backups: 100
+
+reconcile:
+  debounce: 500ms
+  full_rescan_interval: 5m
+
+retry:
+  immediate_retries: 1
+  initial_backoff: 5s
+  max_backoff: 5m
+  jitter_percent: 20
+
+probe_timeout: 2s

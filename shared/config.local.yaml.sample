@@ -1,0 +1,12 @@
+# Runtime-local override file for qnap-docker-mdns.
+# Copy or rename this file to config.local.yaml in the same directory and
+# uncomment settings to override the packaged defaults in config.yaml.
+#
+# Example: change the domain suffix from "local" to "lan":
+#
+#   domain_suffix: lan
+#
+# Example: use a different reverse proxy reload command:
+#
+#   reverse_proxy:
+#     reload_command: /etc/init.d/reverse_proxy.sh restart
