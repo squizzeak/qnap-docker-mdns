@@ -254,9 +254,10 @@ func (r *Reconciler) Reconcile(ctx context.Context) {
 	}
 	r.problemState.Close(notify.ProblemSignature("lan-addrs", "*"))
 
-	publishMap := make(map[string][]string)
+	primaryAddr := addresses[0]
+	publishMap := make(map[string][]string, len(desired))
 	for _, d := range desired {
-		publishMap[d.Hostname] = addresses
+		publishMap[d.Hostname] = []string{primaryAddr}
 	}
 
 	if merr := r.publisher.Reconcile(publishMap, nil); merr != nil {

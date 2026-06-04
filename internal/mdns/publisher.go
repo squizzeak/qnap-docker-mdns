@@ -1,8 +1,10 @@
 package mdns
 
 import (
+	"errors"
 	"fmt"
 	"net"
+	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -55,6 +57,16 @@ func (p *Publisher) Publish(hostname, ip string) error {
 	p.children[key] = child
 	p.mu.Unlock()
 
+	// Reap child process to prevent zombies.
+	go func() {
+		cmd.Wait()
+		p.mu.Lock()
+		if existing, ok := p.children[key]; ok && existing.PID == cmd.Process.Pid {
+			delete(p.children, key)
+		}
+		p.mu.Unlock()
+	}()
+
 	return nil
 }
 
@@ -69,7 +81,7 @@ func (p *Publisher) Unpublish(hostname, ip string) error {
 	delete(p.children, key)
 	p.mu.Unlock()
 
-	if err := child.cmd.Process.Kill(); err != nil {
+	if err := child.cmd.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
 		return fmt.Errorf("kill avahi-publish-address %s %s: %w", hostname, ip, err)
 	}
 	return nil
