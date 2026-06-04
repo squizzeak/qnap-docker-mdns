@@ -1348,6 +1348,7 @@ Deliverables:
   a faster unpacked `qinstall.sh` iteration loop
 - documented current QDK acquisition path and any QNAP developer-account
   prerequisites needed to obtain the SDK/tooling
+- documented `Makefile` targets for common local build, package, and test flows
 
 Exit criteria:
 
@@ -1377,6 +1378,7 @@ Task list:
 - make uninstall drive a final reconciliation that removes the managed block from the per-port file, removes matching JSON entries from `reverseproxy.json`, and stops daemon-owned mDNS advertisements
 - use QDK pre-build or post-build hooks when architecture-specific package contents such as per-arch binaries require `QDK_EXTRA_FILE` changes
 - document how to obtain the current QDK/SDK from QNAP Developer Center, including any required QID sign-in or developer-partner application flow if direct public downloads are not exposed
+- add a repo-level `Makefile` that wraps common developer workflows such as local builds, cross-builds for QNAP targets, QPKG assembly, and validation commands
 - build Go binaries for the supported QNAP targets such as `linux/amd64`, `linux/arm64`, or `linux/arm` as needed
 - document the default x86 QNAP build command for developers working on Apple
   Silicon Macs: `GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o dist/qnap-docker-mdnsd-amd64 ./cmd/qnap-docker-mdnsd`
