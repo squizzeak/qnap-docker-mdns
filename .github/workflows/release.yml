@@ -42,10 +42,15 @@ jobs:
             echo "QNAP_CODESIGNING_TOKEN secret not set — publishing unsigned QPKG."
           fi
 
+      - name: Create latest alias
+        run: |
+          cd build
+          cp qnap-docker-mdns_*.qpkg qnap-docker-mdns_latest.qpkg
+
       - name: Checksums
         run: |
           cd build
-          sha256sum *.qpkg > checksums.txt
+          sha256sum $(ls *.qpkg | grep -v _latest) > checksums.txt
           cat checksums.txt
 
       - name: Publish release

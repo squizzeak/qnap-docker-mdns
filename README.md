@@ -77,7 +77,7 @@ All generated reverse-proxy entries use the `local` access profile (LAN-only by 
 ssh admin@qnap.local
 
 curl -fsSL -o /tmp/qnap-docker-mdns.qpkg \
-  "https://github.com/squizzeak/qnap-docker-mdns/releases/latest/download/qnap-docker-mdns_1.0.0.qpkg" && \
+  "https://github.com/squizzeak/qnap-docker-mdns/releases/latest/download/qnap-docker-mdns_latest.qpkg" && \
 qpkg_cli -m /tmp/qnap-docker-mdns.qpkg -A 1 -q -K
 ```
 
@@ -89,7 +89,7 @@ qpkg_cli -s qnap-docker-mdns --output 2
 
 > **Note:** If the QPKG was signed (via `QNAP_CODESIGNING_TOKEN` in the GitHub release workflow), omit `-A 1`:
 > ```bash
-> curl -fsSL -o /tmp/qnap-docker-mdns.qpkg "https://github.com/…/releases/latest/download/…" && \
+> curl -fsSL -o /tmp/qnap-docker-mdns.qpkg "https://github.com/…/releases/latest/download/qnap-docker-mdns_latest.qpkg" && \
 > qpkg_cli -m /tmp/qnap-docker-mdns.qpkg -q -K
 > ```
 

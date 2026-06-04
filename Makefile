@@ -134,7 +134,7 @@ NAS_HOST ?= qnap.local
 
 install: container-build
 	scp build/qnap-docker-mdns_1.0.0.qpkg admin@$(NAS_HOST):/tmp/qnap-docker-mdns.qpkg
-	ssh admin@$(NAS_HOST) "qpkg_cli -m /tmp/qnap-docker-mdns.qpkg -A && qpkg_cli --enable qnap-docker-mdns"
+	ssh admin@$(NAS_HOST) "qpkg_cli -m /tmp/qnap-docker-mdns.qpkg -A 1 -q -K && qpkg_cli --enable qnap-docker-mdns"
 	@echo ""
 	@echo "Installed and enabled on $(NAS_HOST)."
 	@echo "Check status: ssh admin@$(NAS_HOST) qpkg_cli -s qnap-docker-mdns --output 2"
