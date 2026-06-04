@@ -1336,6 +1336,8 @@ Deliverables:
 - uninstall cleanup behavior
 - upgrade behavior that stops the daemon, replaces the binary, and restarts into startup reconciliation without removing managed proxy config
 - architecture-specific Go build artifacts and packaging notes
+- documented cross-compilation workflow for building Linux QNAP binaries from a
+  `darwin/arm64` development machine
 - documented package-tree and installed-runtime layout that follows QPKG conventions
 - runtime-directory and advisory-lock handling notes
 - operator documentation covering the QNAP reverse proxy UI refresh quirk after
@@ -1365,7 +1367,13 @@ Task list:
 - implement upgrade behavior as stop, replace binary and packaged default assets and `config.local.yaml.sample`, preserve `config.local.yaml`, then start so the daemon re-announces mDNS entries during startup reconciliation without removing the existing managed reverse proxy config first
 - make uninstall drive a final reconciliation that removes the managed block from the per-port file, removes matching JSON entries from `reverseproxy.json`, and stops daemon-owned mDNS advertisements
 - build Go binaries for the supported QNAP targets such as `linux/amd64`, `linux/arm64`, or `linux/arm` as needed
+- document the default x86 QNAP build command for developers working on Apple
+  Silicon Macs: `GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o dist/qnap-docker-mdnsd-amd64 ./cmd/qnap-docker-mdnsd`
+- treat cross-compilation from `darwin/arm64` to `linux/amd64` as the default
+  development workflow for x86_64 QNAP targets unless a dependency forces CGO
 - prefer static builds with `CGO_ENABLED=0` unless a required dependency forces CGO
+- if a dependency forces CGO, move the build to a Linux `amd64` builder or CI
+  job rather than depending on QNAP-native compilation
 - verify the packaged binary matches the NAS CPU architecture and ABI expectations
 - verify the package lifecycle from install to upgrade to uninstall on the target NAS
 - document that the QNAP reverse proxy UI may require clicking away from
@@ -1530,6 +1538,21 @@ QNAP notes:
 
 - QNAP does not need to ship Go at runtime; the QPKG should ship prebuilt native binaries.
 - Build for the target NAS architecture, typically `linux/amd64` for x86_64 models and `linux/arm64` or `linux/arm` for ARM models.
+- For x86_64 NAS targets, a developer working on a `darwin/arm64` Mac should
+  cross-compile the daemon with `GOOS=linux GOARCH=amd64` rather than building
+  on the NAS.
 - Prefer static builds with `CGO_ENABLED=0` unless a required dependency forces CGO.
+- Recommended default command for an x86_64 QNAP build:
+
+```bash
+GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o dist/qnap-docker-mdnsd-amd64 ./cmd/qnap-docker-mdnsd
+```
+
+- Pure-Go builds should work directly from Apple Silicon macOS because Go can
+  cross-compile from `darwin/arm64` to `linux/amd64` without matching the host
+  CPU architecture.
+- If a future dependency requires CGO, build the Linux `amd64` artifact in a
+  Linux `amd64` container, VM, or CI runner instead of assuming cross-CGO will
+  be reliable from macOS.
 - Treat Go support on QNAP as native-binary compatibility, not as an installed platform runtime.
 - Do not rely on the system `Python 2.7` interpreter for the daemon implementation.
