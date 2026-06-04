@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"strings"
 	"sync"
 	"time"
 
@@ -148,7 +149,32 @@ func (r *Reconciler) Reconcile(ctx context.Context) {
 
 	for _, b := range reg.Backends {
 		if b.Status == state.StatusMisconfig {
-			notify.NotifyMisconfig(b.ContainerName, b.StatusReason)
+			sig := notify.ProblemSignature("misconfig", b.ContainerName)
+			if !r.problemState.IsOpen(sig) {
+				notify.NotifyMisconfig(b.ContainerName, b.StatusReason)
+				r.problemState.Open(sig)
+			}
+		}
+	}
+
+	seenContainers := make(map[string]bool)
+	for _, b := range reg.Backends {
+		seenContainers[b.ContainerName] = true
+	}
+	for _, b := range reg.Backends {
+		if b.Status == state.StatusValid {
+			sig := notify.ProblemSignature("misconfig", b.ContainerName)
+			if r.problemState.IsOpen(sig) {
+				notify.NotifyRecovery(fmt.Sprintf("container %s: misconfiguration resolved", b.ContainerName))
+			}
+			r.problemState.Close(sig)
+		}
+	}
+	for sig := range r.problemState.AllOpen() {
+		containerName, ok := strings.CutPrefix(sig, "misconfig:")
+		if ok && !seenContainers[containerName] {
+			notify.NotifyRecovery(fmt.Sprintf("container %s: no longer detected", containerName))
+			r.problemState.Close(sig)
 		}
 	}
 

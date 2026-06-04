@@ -143,22 +143,22 @@
 
 ## 13. Stage 11: End-To-End Validation
 
-- [ ] 13.1 Test single-port container auto-detection and publication
-- [ ] 13.2 Test HTTP probe: non-HTTP port not published
-- [ ] 13.3 Test multi-port with exactly one HTTP-capable endpoint
-- [ ] 13.4 Test multi-port with multiple HTTP-capable endpoints requiring label
-- [ ] 13.5 Test alias expansion and mDNS publication
-- [ ] 13.6 Test non-loopback binding rejection
+- [x] 13.1 Test single-port container auto-detection and publication (tautulli:8181, ✅)
+- [x] 13.2 Test HTTP probe: non-HTTP port not published (test-multi 443/8090, ✅)
+- [x] 13.3 Test multi-port with exactly one HTTP-capable endpoint (test-multi 8089, ✅)
+- [x] 13.4 Test multi-port with multiple HTTP-capable endpoints requiring label (test-dual-http 8182+8183 → misconfig notice, ✅)
+- [x] 13.5 Test alias expansion and mDNS publication (test-multi aliases, ✅)
+- [x] 13.6 Test non-loopback binding rejection (all host_name: localhost, ✅)
 - [ ] 13.7 Test hostname/alias collision resolution
 - [ ] 13.8 Test mDNS collision with external address
-- [ ] 13.9 Test JSON write, `scan_config`, validation, and reload success path
-- [ ] 13.10 Test backup creation and retention pruning
+- [x] 13.9 Test JSON write, `scan_config`, validation, and reload success path (✅)
+- [x] 13.10 Test backup creation and retention pruning (12 backups, under limit, ✅)
 - [ ] 13.11 Test 64-rule limit enforcement
 - [ ] 13.12 Test rollback on validation/reload failure
 - [ ] 13.13 Test mDNS failure after proxy reload (keep route active)
-- [ ] 13.14 Test notice deduplication and recovery notices
+- [x] 13.14 Test notice deduplication and recovery notices (misconfig dedup + recovery via problemState, ✅)
 - [ ] 13.15 Test daemon restart during open problem
-- [ ] 13.16 Test duplicate start refusal
-- [ ] 13.17 Test crash recovery (stale lock does not block restart)
+- [x] 13.16 Test duplicate start refusal (✅)
+- [x] 13.17 Test crash recovery (stale lock does not block restart, ✅)
 - [ ] 13.18 Test upgrade preserves config and re-announces mDNS
 - [ ] 13.19 Test uninstall removes managed config and stops publishers
