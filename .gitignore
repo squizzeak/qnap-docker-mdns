@@ -1,0 +1,28 @@
+# Go binaries
+*.exe
+*.test
+*.out
+
+# Go module
+/vendor/
+
+# Build output
+/dist/
+/build/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# QPKG artifacts
+*.qpkg
+*.qdk
+
+# Local config (not the sample)
+config.local.yaml
