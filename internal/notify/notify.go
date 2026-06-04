@@ -18,6 +18,13 @@ const (
 	facilityApp = "13"
 )
 
+// eventType maps to log_tool -t: 0=Information, 1=Warning, 2=Error
+const (
+	eventInfo    = "0"
+	eventWarning = "1"
+	eventError   = "2"
+)
+
 type ProblemState struct {
 	mu      sync.Mutex
 	open    map[string]bool
@@ -86,21 +93,25 @@ func (ps *ProblemState) save() {
 func NotifyMisconfig(containerName, detail string) {
 	msg := fmt.Sprintf("[qnap-docker-mdns] container %s: %s", containerName, detail)
 	noticeLogTool(msg, "4")
+	eventLogTool(eventWarning, msg)
 }
 
 func NotifyFailure(detail string) {
 	msg := fmt.Sprintf("[qnap-docker-mdns] %s", detail)
 	noticeLogTool(msg, "3")
+	eventLogTool(eventError, msg)
 }
 
 func NotifyRecovery(detail string) {
 	msg := fmt.Sprintf("[qnap-docker-mdns] %s", detail)
 	noticeLogTool(msg, "5")
+	eventLogTool(eventInfo, msg)
 }
 
 func NotifyAudit(detail string) {
 	msg := fmt.Sprintf("[qnap-docker-mdns] %s", detail)
 	noticeLogTool(msg, "5")
+	eventLogTool(eventInfo, msg)
 }
 
 func LogErr(msg string) {
@@ -120,15 +131,32 @@ func ReloadFailureDetail(cmd string, exitCode int, stderr string) string {
 }
 
 func noticeLogTool(msg, severity string) {
-	// Uses the QNAP notice_log_tool binary.
+	// Uses the QNAP notice_log_tool binary for popup notifications.
 	// In tests or non-QNAP environments, this is a no-op.
 	go func() {
 		cmd := exec.Command("notice_log_tool",
-			"--append", msg,
-			"--severity", severity,
-			"--user", userAdmin,
-			"--serviceName", appName,
-			"--facility", facilityApp,
+			"-E", msg,
+			"-t", severity,
+			"-u", userAdmin,
+			"-i", appName,
+			"-y", facilityApp,
+			"-N", "qnap-docker-mdns",
+			"-S", "2",
+			"-g", "MSG_QDM_001",
+		)
+		cmd.Run()
+	}()
+}
+
+func eventLogTool(eventType, msg string) {
+	// Uses the QNAP log_tool binary for persistent entries in qulog notification center.
+	// In tests or non-QNAP environments, this is a no-op.
+	go func() {
+		cmd := exec.Command("log_tool",
+			"-t", eventType,
+			"-u", userAdmin,
+			"-m", appName,
+			"-a", msg,
 		)
 		cmd.Run()
 	}()
