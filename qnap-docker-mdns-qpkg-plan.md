@@ -120,6 +120,11 @@ set that discovered `id` in each managed JSON rule's `access` field and verify
 that QNAP generates the matching `/etc/reverseproxy/access/<id>.conf` include in
 the resulting Apache `VirtualHost`.
 
+If the built-in `local` profile cannot be identified reliably, the daemon must
+fall back to `access: 0` for managed rules. This leaves the reverse proxy rule
+open to all clients, which is acceptable for this package because published
+hostnames are restricted to `.local` mDNS names.
+
 ### scan_config behavior
 
 The `scan_config` function in `/etc/init.d/reverse_proxy.sh`:
@@ -373,13 +378,22 @@ On every reconciliation:
    backup of the current `reverseproxy.json` before replacing it.
 9. Write the updated JSON back atomically.
 10. Run `/etc/init.d/reverse_proxy.sh scan_config` so QNAP regenerates the
-   per-port Apache files from the updated JSON.
+    per-port Apache files from the updated JSON.
 11. Validate the generated Apache config with the platform-confirmed validation
-   command.
+    command.
 12. Gracefully reload the reverse proxy with the platform-confirmed reload
     command.
 13. Inspect the generated per-port files and confirm they contain the expected
     `VirtualHost` entries and discovered `local` access-profile include.
+
+Concurrency note:
+
+- The daemon does not need a special coordination mechanism with QNAP UI writes.
+- If the QNAP UI and the daemon both modify `reverseproxy.json` near the same
+  time, the next periodic reconciliation pass is responsible for re-merging the
+  daemon-managed entries back to the desired state.
+- Preserve unmanaged entries on every merge so eventual reconciliation converges
+  without requiring the daemon to own the entire file.
 
 ### scan_config recovery
 
@@ -525,7 +539,7 @@ Candidates to test:
 The daemon should support configuration:
 
 ```yaml
-reload_command: "/etc/init.d/reverse_proxy.sh restart"
+reload_command: "/usr/local/apache/bin/apache_proxy -k graceful -f /etc/apache-sys-proxy.conf"
 validate_command: "/usr/local/apache/bin/apache_proxy -t -f /etc/apache-sys-proxy.conf"
 probe_timeout: 2s
 
@@ -637,9 +651,7 @@ qnap-docker-mdns/
 │   ├── qnap-docker-mdnsd
 │   ├── qnap-docker-mdns.sh
 │   ├── config.yaml
-│   ├── config.local.yaml.sample
-│   └── templates/
-│       └── vhost.conf.tmpl
+│   └── config.local.yaml.sample
 ├── icons/
 └── README.md
 ```
@@ -650,7 +662,7 @@ QPKG conventions:
 - Treat `shared/` as the payload that will be installed under the package root on the NAS.
 - Install the package under the QNAP-managed QPKG location and resolve the runtime root from the QPKG environment rather than hard-coding a volume path.
 - Resolve the installed package path from `/etc/config/qpkg.conf` or the QPKG environment provided by the control script instead of assuming a fixed volume mount.
-- Keep daemon binaries, default config, templates, and helper scripts inside the QPKG root so install, upgrade, and uninstall remain self-contained.
+- Keep daemon binaries, default config, and helper scripts inside the QPKG root so install, upgrade, and uninstall remain self-contained.
 - Use the QPKG control script convention for `start`, `stop`, `restart`, and `remove` behavior through the package service script.
 - Follow the standard QDK init-script guard that exits early on `start` when the QPKG is disabled.
 
@@ -662,9 +674,7 @@ $QPKG_ROOT/
 ├── qnap-docker-mdns.sh
 ├── config.yaml
 ├── config.local.yaml.sample
-├── config.local.yaml
-└── templates/
-    └── vhost.conf.tmpl
+└── config.local.yaml
 ```
 
 Configuration layout rules:
@@ -943,7 +953,7 @@ Validation command rules:
 Scope:
 
 - confirm reverse proxy config path and reload behavior on target QTS versions
-- confirm reverse proxy access-profile path and built-in `local` profile discovery by `name: "local"` on target QTS versions
+- confirm reverse proxy access-profile path and built-in `local` profile discovery by `name: "local"` on target QTS versions, plus fallback behavior when it cannot be identified
 - confirm `/var/run/docker.sock` access from the QPKG service context
 - confirm `notice_log_tool`, `logger`, `avahi-publish-address`, and `ip route` availability on target systems
 - confirm Apache-native validation and graceful reload commands on target systems
@@ -970,6 +980,8 @@ Exit criteria:
 - the selected validation command works on the target NAS
 - the built-in `local` access profile can be discovered reliably from
   `access.json` on the target NAS
+- if the built-in `local` profile cannot be discovered reliably, fallback to
+  `access: 0` is confirmed to behave as expected on the target NAS
 - the required JSON change sequence (`scan_config` then reload) is confirmed on
   the target NAS
 - the prescribed QNAP notice, recovery-notice, and logging commands are confirmed
@@ -980,6 +992,7 @@ Task list:
 
 - inspect the target NAS for `/etc/reverseproxy/extra/80.conf` and confirm expected include behavior
 - inspect `/etc/config/reverseproxy/access.json` and `/etc/reverseproxy/access/*.conf` and confirm the built-in `local` profile can be discovered by name and mapped to the correct include path
+- verify fallback behavior when the built-in `local` profile cannot be identified and `access: 0` must be used
 - test Apache-native config validation and graceful reload commands against the active reverse proxy binary and config before relying on QNAP wrapper scripts
 - test each candidate reverse proxy reload command and record the working default
 - test whether direct `SIGHUP` to the running reverse proxy master behaves equivalently to the chosen reload command after regenerated config changes
@@ -1082,6 +1095,8 @@ Deliverables:
   embedded `qnap_docker_mdns_managed` / `qnap_docker_mdns_key` ownership markers
 - QNAP access-profile rendering that sets `access` to the discovered `local`
   profile ID and verifies the generated include path
+- fallback access-profile rendering that uses `access: 0` when the built-in
+  `local` profile cannot be identified reliably
 - alias expansion from one container definition into multiple managed JSON rules
 
 Exit criteria:
@@ -1090,6 +1105,7 @@ Exit criteria:
 - generated JSON rules use sequential IDs following the existing max ID in `reverseproxy.json` for new rules, preserve IDs for existing owned rules matched by embedded ownership key, and include `(managed)` in the `name` field
 - rendered backends always target `localhost`
 - generated Apache and JSON rules always use the discovered built-in `local` access profile
+- generated Apache and JSON rules fall back safely to `access: 0` when the built-in `local` access profile cannot be identified
 - conflicting hostnames never produce ambiguous rendered output
 - colliding aliases are skipped while non-conflicting aliases still render as additional managed hostname entries
 - managed-name collisions resolve deterministically according to the stable normalized alphanumeric ordering
@@ -1101,6 +1117,7 @@ Task list:
 - implement JSON rule rendering with next-available ID assignment for new owned rules, in-place updates for existing owned rules matched by embedded ownership key, `(managed)` in the `name` field, and custom ownership-marker fields
 - discover the numeric access-profile ID for `name: "local"` from `access.json`
 - set `access` to the discovered `local` profile ID in every generated JSON rule
+- set `access: 0` when the built-in `local` access profile cannot be identified reliably
 - emit a human-visible managed label such as `<primary-hostname> (managed)` for each generated reverse proxy entry without changing routed hostnames
 - apply the stable normalized alphanumeric winner rule before rendering managed hostnames and aliases
 - ensure rendered JSON targets always use `host_name: localhost` and `des_port: <port>`
@@ -1234,7 +1251,6 @@ Task list:
 - implement LAN IPv4 discovery by enumerating supported non-loopback interface addresses
 - use `ip route get 1.1.1.1` and default-route inspection as discovery inputs where helpful
 - filter the discovered address set down to addresses intended for LAN clients and valid for the reverse proxy backends
-- launch one `avahi-publish-address -a` process per hostname, alias, and published IPv4 address
 - launch one `avahi-publish-address -a` process per published hostname entry and published IPv4 address
 - track publisher PIDs and the hostname and IP address each PID owns
 - detect existing mDNS advertisements for requested hostnames before publishing
@@ -1381,7 +1397,7 @@ Task list:
 
 - create `qpkg.cfg` with the package metadata and service hooks
 - add `shared/qnap-docker-mdnsd` and `shared/qnap-docker-mdns.sh`
-- add the default `config.yaml`, commented `config.local.yaml.sample`, and vhost template or embed strategy used by the daemon
+- add the default `config.yaml` and commented `config.local.yaml.sample`
 - make `shared/qnap-docker-mdns.sh` the QPKG control script entrypoint for `start`, `stop`, `restart`, and uninstall cleanup flows
 - resolve runtime paths from the QPKG environment such as `QPKG_ROOT`, and verify the installed path can also be derived from `/etc/config/qpkg.conf`
 - follow the standard QDK disabled-package guard so `start` exits cleanly when the QPKG is disabled
