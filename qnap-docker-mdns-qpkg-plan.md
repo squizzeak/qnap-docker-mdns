@@ -394,6 +394,9 @@ Concurrency note:
   daemon-managed entries back to the desired state.
 - Preserve unmanaged entries on every merge so eventual reconciliation converges
   without requiring the daemon to own the entire file.
+- No dedicated timing-sensitive validation is required for this race because it
+  is difficult to reproduce reliably; periodic reconciliation is considered
+  sufficient for correctness.
 
 ### scan_config recovery
 
@@ -1354,7 +1357,7 @@ Task list:
 
 Scope:
 
-- package daemon, service script, config, templates, and metadata
+- package daemon, service script, config, and metadata
 - define install, start, stop, and uninstall behavior
 - define upgrade behavior
 - ensure cleanup of managed config and publisher processes
@@ -1367,7 +1370,7 @@ Deliverables:
 - `qpkg.cfg`
 - `shared/qnap-docker-mdnsd`
 - `shared/qnap-docker-mdns.sh`
-- default config and template files
+- default config files and sample files
 - separate default and runtime-local config files
 - uninstall cleanup behavior
 - upgrade behavior that stops the daemon, replaces the binary, and restarts into startup reconciliation without removing managed proxy config
@@ -1459,13 +1462,14 @@ Task list:
 - test alias collisions and verify only the colliding aliases are skipped while valid aliases still route and publish
 - test existing primary mDNS collision on a non-NAS IP and verify both mDNS publication and reverse proxy publication are refused with a user-visible notice unless exact-match ownership is adopted
 - test reverse proxy config generation, `scan_config`, validation, and reload success paths
-- test JSON write path: verify a managed entry appears in `/etc/config/reverseproxy/reverseproxy.json` with `(managed)` in the `name` field, correct `server_name`, `host_name: localhost`, discovered `local` profile `access` id, `des_port`, `port: 80`, `qnap_docker_mdns_managed: true`, and the expected `qnap_docker_mdns_key`
-- test Apache render path: verify each generated managed `VirtualHost` includes `/etc/reverseproxy/access/<discovered-local-access-id>.conf`
+- test JSON write path: verify a managed entry appears in `/etc/config/reverseproxy/reverseproxy.json` with `(managed)` in the `name` field, correct `server_name`, `host_name: localhost`, the discovered `local` profile `access` id when available or `access: 0` when it is not, `des_port`, `port: 80`, `qnap_docker_mdns_managed: true`, and the expected `qnap_docker_mdns_key`
+- test Apache render path: verify each generated managed `VirtualHost` includes `/etc/reverseproxy/access/<discovered-local-access-id>.conf` when the built-in `local` profile is identified, or verify the generated rule remains accessible without that include when the daemon falls back to `access: 0`
 - test alias expansion: verify a container with two valid aliases produces three managed JSON entries with distinct stable ownership keys and three corresponding generated `VirtualHost` entries
 - test next-ID assignment: verify the JSON entry's `id` is `max(existing_ids) + 1`
-- test generated Apache + JSON consistency: after reconciliation, verify the generated `80.conf` entry and the JSON entry have matching hostnames, ports, and discovered `local` access profile
+- test generated Apache + JSON consistency: after reconciliation, verify the generated `80.conf` entry and the JSON entry have matching hostnames, ports, and either the discovered `local` access profile or the documented `access: 0` fallback state
 - test `scan_config` regeneration: trigger QNAP's `scan_config`, verify `80.conf` is regenerated from JSON, then trigger daemon reconciliation and verify the managed JSON entries still produce the expected `VirtualHost` output
 - test dated backup retention: make repeated substantive JSON changes, verify dated backup files are created, and verify the oldest backups are pruned once `max_backups` is exceeded
+- dedicated race-condition validation for overlapping QNAP UI and daemon writes is not required; periodic reconciliation is accepted as sufficient because reproducing the timing reliably is difficult
 - test 64-rule limit: fill `reverseproxy.json` with 64 entries, add another managed container, verify a user-visible notice is emitted and the rule is not added
 - test mDNS publication failure after successful reverse proxy reload and verify the route stays active while re-announcement retries continue
 - test Avahi publication, resolution, cleanup, and restart reconciliation
@@ -1559,9 +1563,9 @@ labels:
 4. Configuration automatically generated for the selected backend port.
 5. Generated reverse proxy backend targets `localhost:<host-published-port>`.
 6. QNAP-generated `VirtualHost` entries are written to `/etc/reverseproxy/extra/80.conf` from daemon-managed JSON entries after `scan_config` runs.
-7. Each generated managed `VirtualHost` includes `/etc/reverseproxy/access/<discovered-local-access-id>.conf` so the built-in `local` access profile is always applied.
+7. Each generated managed `VirtualHost` includes `/etc/reverseproxy/access/<discovered-local-access-id>.conf` when the built-in `local` access profile can be identified, or falls back to the documented open `access: 0` behavior when it cannot.
 8. A matching JSON entry exists in `/etc/config/reverseproxy/reverseproxy.json` with `"name": "<primary-hostname> (managed)"` so the QNAP UI Rule Name column shows the managed label.
-9. The matching JSON entry sets `"access": <discovered-local-access-id>` so QNAP's generated config also uses the built-in `local` access profile.
+9. The matching JSON entry sets `"access": <discovered-local-access-id>` when the built-in `local` access profile can be identified, or `"access": 0` when the documented fallback is required.
 10. A matching JSON entry stores `"qnap_docker_mdns_managed": true` and the expected stable `"qnap_docker_mdns_key"` so the daemon can identify owned rules without relying on `/var/run` state.
 11. A newly created managed JSON entry uses the next available sequential ID after the maximum existing ID in the file, while an existing owned managed rule preserves its previously assigned ID across reconciliation.
 12. QNAP reverse proxy reloaded.
@@ -1585,7 +1589,7 @@ labels:
 30. A primary hostname that already resolves through mDNS to an address outside the selected NAS LAN IPv4 address set is not published in either mDNS or the generated reverse proxy configuration unless exact-match ownership is adopted, and it produces a user-visible notice.
 31. An alias that already resolves through mDNS to an address outside the selected NAS LAN IPv4 address set is skipped while the remaining non-conflicting hostnames and aliases continue to publish, and the skipped alias produces a user-visible notice.
 32. After an external `scan_config`, the daemon's next reconciliation confirms the managed JSON entries still produce the expected `VirtualHost` entries without duplicate ServerName mappings.
-33. The generated Apache output and the JSON entries are always consistent after reconciliation (same hostnames, same ports, same discovered `local` access profile).
+33. The generated Apache output and the JSON entries are always consistent after reconciliation (same hostnames, same ports, and the same discovered `local` access profile or documented `access: 0` fallback state).
 34. Adding a managed rule when `reverseproxy.json` already has 64 entries produces a user-visible notice and the rule is not added.
 35. Each substantive change to `reverseproxy.json` creates one dated backup of the prior file contents, and backup retention is capped by `max_backups`.
 36. A primary hostname blocked by an unmanaged reverse proxy `ServerName` or `ServerAlias`, and an alias skipped for that reason, each produce a visible QNAP notice through `notice_log_tool --severity 4`.
