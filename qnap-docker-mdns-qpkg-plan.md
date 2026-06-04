@@ -632,8 +632,10 @@ QPKG conventions:
 - Follow the standard QPKG package layout with `qpkg.cfg` at the package root.
 - Treat `shared/` as the payload that will be installed under the package root on the NAS.
 - Install the package under the QNAP-managed QPKG location and resolve the runtime root from the QPKG environment rather than hard-coding a volume path.
+- Resolve the installed package path from `/etc/config/qpkg.conf` or the QPKG environment provided by the control script instead of assuming a fixed volume mount.
 - Keep daemon binaries, default config, templates, and helper scripts inside the QPKG root so install, upgrade, and uninstall remain self-contained.
 - Use the QPKG control script convention for `start`, `stop`, `restart`, and `remove` behavior through the package service script.
+- Follow the standard QDK init-script guard that exits early on `start` when the QPKG is disabled.
 
 Installed runtime layout target:
 
@@ -1342,6 +1344,10 @@ Deliverables:
 - runtime-directory and advisory-lock handling notes
 - operator documentation covering the QNAP reverse proxy UI refresh quirk after
   on-disk JSON updates
+- documented QDK packaging workflow covering `qbuild`, config registration, and
+  a faster unpacked `qinstall.sh` iteration loop
+- documented current QDK acquisition path and any QNAP developer-account
+  prerequisites needed to obtain the SDK/tooling
 
 Exit criteria:
 
@@ -1358,14 +1364,19 @@ Task list:
 - add `shared/qnap-docker-mdnsd` and `shared/qnap-docker-mdns.sh`
 - add the default `config.yaml`, commented `config.local.yaml.sample`, and vhost template or embed strategy used by the daemon
 - make `shared/qnap-docker-mdns.sh` the QPKG control script entrypoint for `start`, `stop`, `restart`, and uninstall cleanup flows
-- resolve runtime paths from the QPKG environment such as `QPKG_ROOT` instead of hard-coding install volumes
+- resolve runtime paths from the QPKG environment such as `QPKG_ROOT`, and verify the installed path can also be derived from `/etc/config/qpkg.conf`
+- follow the standard QDK disabled-package guard so `start` exits cleanly when the QPKG is disabled
 - implement install-time setup for config, permissions, and service registration
 - create `config.local.yaml` from the sample only when it does not already exist and leave an existing runtime config untouched
+- decide whether `config.local.yaml` should be registered through `QPKG_CONFIG`, `qbuild --force-config`, or `add_qpkg_config` in `pkg_init()` so upgrades preserve operator-managed runtime config without spurious overwrite prompts
 - create the runtime directory and lock-file path with the expected ownership and permissions
+- create runtime-only directories during install so upgrades do not overwrite their contents
 - implement stop and uninstall cleanup for the managed block, JSON entries in `reverseproxy.json`, and Avahi publisher processes
 - implement advisory `flock` locking in the daemon and make the control script report lock-holder metadata for duplicate-start diagnostics
 - implement upgrade behavior as stop, replace binary and packaged default assets and `config.local.yaml.sample`, preserve `config.local.yaml`, then start so the daemon re-announces mDNS entries during startup reconciliation without removing the existing managed reverse proxy config first
 - make uninstall drive a final reconciliation that removes the managed block from the per-port file, removes matching JSON entries from `reverseproxy.json`, and stops daemon-owned mDNS advertisements
+- use QDK pre-build or post-build hooks when architecture-specific package contents such as per-arch binaries require `QDK_EXTRA_FILE` changes
+- document how to obtain the current QDK/SDK from QNAP Developer Center, including any required QID sign-in or developer-partner application flow if direct public downloads are not exposed
 - build Go binaries for the supported QNAP targets such as `linux/amd64`, `linux/arm64`, or `linux/arm` as needed
 - document the default x86 QNAP build command for developers working on Apple
   Silicon Macs: `GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o dist/qnap-docker-mdnsd-amd64 ./cmd/qnap-docker-mdnsd`
@@ -1374,6 +1385,8 @@ Task list:
 - prefer static builds with `CGO_ENABLED=0` unless a required dependency forces CGO
 - if a dependency forces CGO, move the build to a Linux `amd64` builder or CI
   job rather than depending on QNAP-native compilation
+- document a faster package-development loop that unpacks a built QPKG and re-runs `sh qinstall.sh` while iterating on package install logic instead of rebuilding the archive for every `package_routines` change
+- use `qbuild --exclude` or equivalent packaging filters so development metadata does not leak into the QPKG payload
 - verify the packaged binary matches the NAS CPU architecture and ABI expectations
 - verify the package lifecycle from install to upgrade to uninstall on the target NAS
 - document that the QNAP reverse proxy UI may require clicking away from
@@ -1556,3 +1569,5 @@ GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o dist/qnap-docker-mdnsd-amd64 .
   be reliable from macOS.
 - Treat Go support on QNAP as native-binary compatibility, not as an installed platform runtime.
 - Do not rely on the system `Python 2.7` interpreter for the daemon implementation.
+- Expect to build the QPKG with QDK tooling on the development machine or CI, then
+  use an unpacked `qinstall.sh` loop for faster iteration on package-install logic.
