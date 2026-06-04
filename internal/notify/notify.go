@@ -110,10 +110,6 @@ func LogInfo(msg string) {
 	logger(msg, "daemon.notice")
 }
 
-func ProblemSignature(domain, containerName string) string {
-	return fmt.Sprintf("%s:%s", domain, containerName)
-}
-
 func ReloadFailureDetail(cmd string, exitCode int, stderr string) string {
 	return fmt.Sprintf("reverse proxy reload failed: exit_status=%d command=%s", exitCode, cmd)
 }

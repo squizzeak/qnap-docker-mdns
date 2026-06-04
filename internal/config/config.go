@@ -1,7 +1,9 @@
 package config
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"time"
 
@@ -202,7 +204,7 @@ func LoadMerged(defaultPath, overridePath string) (*Config, error) {
 
 	over, err := LoadFile(overridePath)
 	if err != nil {
-		if !os.IsNotExist(err) {
+		if !errors.Is(err, fs.ErrNotExist) {
 			return nil, err
 		}
 	} else {

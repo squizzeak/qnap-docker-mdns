@@ -1,7 +1,6 @@
 package proxy
 
 import (
-	"fmt"
 	"os/exec"
 	"strings"
 	"time"

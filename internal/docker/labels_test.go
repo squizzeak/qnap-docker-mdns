@@ -155,8 +155,21 @@ func TestSelectCandidatePortMultipleWithoutLabel(t *testing.T) {
 	}
 }
 
-func TestSelectCandidatePortLabelNotInCandidates(t *testing.T) {
-	_, _, err := SelectCandidatePort(nil, []uint16{80}, 3000, true)
+func TestSelectCandidatePortLabelNotInCandidatesSingle(t *testing.T) {
+	port, ok, err := SelectCandidatePort(nil, []uint16{80}, 3000, true)
+	if err != nil {
+		t.Fatal("unexpected error for single candidate even with non-matching label")
+	}
+	if !ok {
+		t.Fatal("expected ok for single candidate")
+	}
+	if port != 80 {
+		t.Errorf("expected 80, got %d", port)
+	}
+}
+
+func TestSelectCandidatePortLabelNotInMultiCandidates(t *testing.T) {
+	_, _, err := SelectCandidatePort(nil, []uint16{80, 8080}, 3000, true)
 	if err == nil {
 		t.Fatal("expected error for label port not in candidates")
 	}

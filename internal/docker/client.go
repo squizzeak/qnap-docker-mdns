@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/events"
 	"github.com/docker/docker/client"
 )
@@ -47,7 +48,7 @@ func (c *Client) Close() error {
 }
 
 func (c *Client) ListRunningContainers(ctx context.Context) ([]Container, error) {
-	containers, err := c.cli.ContainerList(ctx, types.ContainerListOptions{})
+	containers, err := c.cli.ContainerList(ctx, container.ListOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("container list: %w", err)
 	}

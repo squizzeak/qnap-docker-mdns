@@ -2,6 +2,8 @@ package state
 
 import (
 	"testing"
+
+	dockerpkg "github.com/squizzeak/qnap-docker-mdns/internal/docker"
 )
 
 func fakeProbe(port uint16) bool {

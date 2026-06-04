@@ -1,20 +1,24 @@
 package proxy
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 )
 
 func TestWouldExceedLimit(t *testing.T) {
-	if WouldExceedLimit(MaxRules, 1) {
-		t.Error("expected false for 64 current + 1 new")
+	if !WouldExceedLimit(MaxRules, 1) {
+		t.Error("expected true for 64 current + 1 new (exceeds limit)")
 	}
 	if !WouldExceedLimit(MaxRules-1, 2) {
 		t.Error("expected true for 63 current + 2 new")
 	}
-	if !WouldExceedLimit(64, 0) {
-		t.Error("expected false for exactly 64")
+	if WouldExceedLimit(MaxRules, 0) {
+		t.Error("expected false for exactly 64 current (at limit)")
+	}
+	if WouldExceedLimit(MaxRules-1, 1) {
+		t.Error("expected false for 63 current + 1 new (room available)")
 	}
 }
 
