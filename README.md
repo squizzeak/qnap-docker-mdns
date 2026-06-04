@@ -72,31 +72,28 @@ All generated reverse-proxy entries use the `local` access profile (LAN-only by 
 
 ### Install from GitHub Releases (recommended)
 
-Download the latest `.qpkg` from the [Releases page](https://github.com/squizzeak/qnap-docker-mdns/releases), copy it to your NAS, and install:
-
 ```bash
-# From your machine — upload the .qpkg
-scp qnap-docker-mdns_1.0.0.qpkg admin@qnap.local:/tmp/
-
-# On the NAS — install and enable (via SSH)
+# On the NAS (via SSH) — download and install in one step
 ssh admin@qnap.local
 
-# Install (the -A flag bypasses the code signing check — see prerequisites above)
-qpkg_cli -m /tmp/qnap-docker-mdns_1.0.0.qpkg -A
+curl -fsSL -o /tmp/qnap-docker-mdns.qpkg \
+  "https://github.com/squizzeak/qnap-docker-mdns/releases/latest/download/qnap-docker-mdns_1.0.0.qpkg" && \
+qpkg_cli -m /tmp/qnap-docker-mdns.qpkg -A 1 -q -K
+```
 
-# Enable (starts the daemon)
-qpkg_cli --enable qnap-docker-mdns
+The `latest/download/` URL always resolves to the newest release — no need to check version numbers.  The install auto-enables the daemon.  Verify it is running:
 
-# Verify
+```bash
 qpkg_cli -s qnap-docker-mdns --output 2
 ```
 
-> **Note:** If the QPKG was signed (via `QNAP_CODESIGNING_TOKEN` in the GitHub release workflow), omit the `-A` flag:
+> **Note:** If the QPKG was signed (via `QNAP_CODESIGNING_TOKEN` in the GitHub release workflow), omit `-A 1`:
 > ```bash
-> qpkg_cli -m /tmp/qnap-docker-mdns_1.0.0.qpkg
+> curl -fsSL -o /tmp/qnap-docker-mdns.qpkg "https://github.com/…/releases/latest/download/…" && \
+> qpkg_cli -m /tmp/qnap-docker-mdns.qpkg -q -K
 > ```
 
-To upgrade, repeat the same steps — `qpkg_cli -m` upgrades an existing installation in place, preserving `config.local.yaml`.
+To upgrade, run the same commands — `qpkg_cli -m` upgrades an existing installation in place, preserving `config.local.yaml`.
 
 ### Build & install from your Mac/Linux machine
 
@@ -156,7 +153,7 @@ scp build/qnap-docker-mdns_1.0.0.qpkg admin@qnap.local:/tmp/
 
 # On the NAS (via SSH)
 ssh admin@qnap.local
-qpkg_cli -m /tmp/qnap-docker-mdns_1.0.0.qpkg -A
+qpkg_cli -m /tmp/qnap-docker-mdns_1.0.0.qpkg -A 1 -q -K
 qpkg_cli --enable qnap-docker-mdns
 ```
 
