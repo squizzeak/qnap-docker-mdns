@@ -62,6 +62,12 @@ from its JSON config database via the `scan_config` function in
 This JSON file is the QNAP UI's source of truth. Each rule's `name` field
 becomes the Rule Name shown in the reverse proxy management table.
 
+Observed QNAP UI behavior on at least one target NAS: after `reverseproxy.json`
+is changed on disk, the reverse proxy web UI does not automatically refresh the
+currently open Network Access view. User-facing documentation must instruct the
+operator to click away from the `Network Access` section in the left sidebar
+and then return to it to see the updated rule list.
+
 Example entry:
 
 ```json
@@ -172,11 +178,16 @@ HTTP endpoint validation rules:
 - Treat connection refusal, timeout, TLS-only response, or other non-HTTP response as probe failure.
 - If `qnap-docker-mdns.port` is set, that port must also pass the HTTP probe before the container is considered eligible.
 - If no published port passes the HTTP probe, the container must not be published.
+- Probe every eligible host-published TCP port before deciding whether the port
+  label is required.
 
 Port selection rules:
 
 - If exactly one candidate port is available, the daemon uses it automatically.
-- If more than one candidate port is available, `qnap-docker-mdns.port` is required.
+- If a container exposes multiple host-published TCP ports, auto-detect the
+  HTTP endpoint by probing all of them and use it automatically when exactly one
+  candidate port is found.
+- If more than one candidate port is available after probing, `qnap-docker-mdns.port` is required.
 - If no candidate ports are available, the container is skipped and treated as actionable misconfiguration.
 - `qnap-docker-mdns.port` must match one of the container's host-published TCP ports.
 - A host-published TCP port is a candidate only when the binding is reachable through loopback on the NAS.
@@ -749,7 +760,7 @@ Prescribed actionable-misconfiguration notice method:
 
 ```bash
 notice_log_tool \
-  --append "[qnap-docker-mdns] container <name>: multiple host-published TCP ports found, but qnap-docker-mdns.port is not set" \
+  --append "[qnap-docker-mdns] container <name>: multiple HTTP-capable host-published TCP ports found, but qnap-docker-mdns.port is not set" \
   --severity 4 \
   --user admin \
   --serviceName qnap-docker-mdns \
@@ -1003,7 +1014,7 @@ Deliverables:
 Exit criteria:
 
 - enabled containers with one valid candidate port are discovered correctly
-- enabled containers with no valid candidate port or multiple candidates are classified correctly
+- enabled containers with no valid candidate port or more than one HTTP-capable candidate port are classified correctly
 - non-loopback-only and IPv6-only bindings are rejected consistently
 
 Task list:
@@ -1013,8 +1024,9 @@ Task list:
 - filter published ports down to host-published TCP candidates usable through `localhost`
 - reject bindings that are not reachable through NAS loopback
 - probe candidate ports with a short HTTP request and keep only ports that return a parseable HTTP response
-- select the backend port automatically when exactly one candidate exists
-- mark containers as actionable misconfiguration when zero or multiple candidates exist without a valid label override
+- select the backend port automatically when probing leaves exactly one HTTP-capable candidate
+- require `qnap-docker-mdns.port` only when probing leaves more than one HTTP-capable candidate
+- mark containers as actionable misconfiguration when zero HTTP-capable candidates exist, or when more than one HTTP-capable candidate exists without a valid label override
 - build the initial desired-state registry from the filtered container set
 
 ### Stage 4: Reverse Proxy Rendering
@@ -1326,6 +1338,8 @@ Deliverables:
 - architecture-specific Go build artifacts and packaging notes
 - documented package-tree and installed-runtime layout that follows QPKG conventions
 - runtime-directory and advisory-lock handling notes
+- operator documentation covering the QNAP reverse proxy UI refresh quirk after
+  on-disk JSON updates
 
 Exit criteria:
 
@@ -1354,6 +1368,9 @@ Task list:
 - prefer static builds with `CGO_ENABLED=0` unless a required dependency forces CGO
 - verify the packaged binary matches the NAS CPU architecture and ABI expectations
 - verify the package lifecycle from install to upgrade to uninstall on the target NAS
+- document that the QNAP reverse proxy UI may require clicking away from
+  `Network Access` in the left sidebar and then back again before managed JSON
+  changes become visible in the interface
 
 ### Stage 11: End-To-End Validation
 
@@ -1376,7 +1393,8 @@ Task list:
 
 - test a container with one host-published TCP port and verify automatic backend selection
 - test a single published port that does not return a valid HTTP response and verify it is not published
-- test a container with multiple host-published TCP ports and verify the label requirement
+- test a container with multiple host-published TCP ports where only one returns a parseable HTTP response and verify automatic backend selection
+- test a container with multiple host-published TCP ports where more than one returns a parseable HTTP response and verify the label requirement
 - test a container with no suitable host-published TCP port and verify actionable misconfiguration handling
 - test a container with valid non-colliding aliases and verify they route through Apache as `ServerAlias` and publish through mDNS successfully
 - test a container published only on a non-loopback host IP and verify it is rejected as unsupported
@@ -1442,7 +1460,7 @@ labels:
   qnap-docker-mdns.enable: "true"
 ```
 
-If the container exposes multiple host-published TCP ports that could serve HTTP traffic, add:
+If probing multiple host-published TCP ports finds more than one HTTP-capable endpoint, add:
 
 ```yaml
 labels:
@@ -1467,31 +1485,32 @@ labels:
 19. Stopping a managed container removes that container's `VirtualHost` from the managed block, removes the matching JSON entry, and stops the matching Avahi publisher.
 20. Stopping, destroying, renaming, or replacing a managed container with an ineligible container instance removes that container's `VirtualHost` from the managed block, removes the matching JSON entry, and stops the matching Avahi publishers.
 21. A single published port that does not return a parseable HTTP response to the configured probe is not treated as a candidate port.
-22. A container with multiple candidate ports is ignored until `qnap-docker-mdns.port` is set.
-23. An enabled container with no suitable loopback-reachable host-published TCP port is ignored.
-24. A container published only on a non-loopback host IP is treated as unsupported and is not proxied.
-25. Managed hostname and alias collisions resolve deterministically by stable normalized alphanumeric ordering, with later conflicting names skipped.
-26. An alias that collides with another managed hostname or alias is skipped while the remaining non-conflicting hostnames and aliases continue to publish.
-27. A primary hostname that collides with an unmanaged reverse proxy `ServerName` or `ServerAlias` is not published.
-28. An alias that collides with an unmanaged reverse proxy `ServerName` or `ServerAlias` is skipped while the remaining non-conflicting hostnames and aliases continue to publish.
-29. A primary hostname that already resolves through mDNS to an address outside the selected NAS LAN IPv4 address set is not published in either mDNS or the generated reverse proxy configuration unless exact-match ownership is adopted, and it produces a user-visible notice.
-30. An alias that already resolves through mDNS to an address outside the selected NAS LAN IPv4 address set is skipped while the remaining non-conflicting hostnames and aliases continue to publish, and the skipped alias produces a user-visible notice.
-31. After an external `scan_config` wipes the per-port file, the daemon's next reconciliation restores the managed block without creating duplicate VirtualHost entries for the same ServerName.
-32. The managed block and the JSON entry are always consistent after reconciliation (same hostnames, same ports, same forced `local` access profile).
-33. Adding a managed rule when `reverseproxy.json` already has 64 entries produces a user-visible notice and the rule is not added.
-34. A primary hostname blocked by an unmanaged reverse proxy `ServerName` or `ServerAlias`, and an alias skipped for that reason, each produce a visible QNAP notice through `notice_log_tool --severity 4`.
-35. An actionable misconfiguration produces one visible QNAP notice through `notice_log_tool --severity 4`.
-36. An operational failure produces both a visible QNAP notice through `notice_log_tool --severity 3` and a syslog entry through `logger`.
-37. Repeated reconciliation while the same failure persists does not spam duplicate notifications.
-38. Clearing a previously reported failure produces one notice-level QNAP recovery notice through `notice_log_tool --severity 5`.
-39. Daemon restart during an open problem does not re-emit the same failure as a new notice and still allows the matching recovery notice later.
-40. Operational failures are retried with backoff and stop retrying after recovery.
-41. mDNS publication failure after a successful reverse proxy reload leaves the HTTP route active while de-announcement and re-announcement retries continue.
-42. A duplicate daemon start is refused while the active daemon instance holds the advisory lock.
-43. Startup reconciliation may adopt an exact-match user-generated `avahi-publish-address` helper whose advertised `hostname + IP` pair matches current desired state only after recovering that pair from process-observable helper metadata; once adopted, that exact-match advertisement becomes service-managed.
-44. Stale lock-file paths without a held advisory lock do not block daemon restart after a crash.
-45. Upgrade stops the daemon, replaces the packaged binary, default assets, and `config.local.yaml.sample`, preserves `config.local.yaml`, and restarts without removing the existing managed reverse proxy config first; startup reconciliation re-announces mDNS entries.
-46. Uninstall removes only daemon-managed reverse proxy and mDNS state (JSON entries + managed block + Avahi publishers) and leaves user-managed entries intact.
+22. A container with multiple host-published TCP ports but exactly one parseable HTTP endpoint is published automatically using that endpoint.
+23. A container with more than one parseable HTTP-capable candidate port is ignored until `qnap-docker-mdns.port` is set.
+24. An enabled container with no suitable loopback-reachable host-published TCP port is ignored.
+25. A container published only on a non-loopback host IP is treated as unsupported and is not proxied.
+26. Managed hostname and alias collisions resolve deterministically by stable normalized alphanumeric ordering, with later conflicting names skipped.
+27. An alias that collides with another managed hostname or alias is skipped while the remaining non-conflicting hostnames and aliases continue to publish.
+28. A primary hostname that collides with an unmanaged reverse proxy `ServerName` or `ServerAlias` is not published.
+29. An alias that collides with an unmanaged reverse proxy `ServerName` or `ServerAlias` is skipped while the remaining non-conflicting hostnames and aliases continue to publish.
+30. A primary hostname that already resolves through mDNS to an address outside the selected NAS LAN IPv4 address set is not published in either mDNS or the generated reverse proxy configuration unless exact-match ownership is adopted, and it produces a user-visible notice.
+31. An alias that already resolves through mDNS to an address outside the selected NAS LAN IPv4 address set is skipped while the remaining non-conflicting hostnames and aliases continue to publish, and the skipped alias produces a user-visible notice.
+32. After an external `scan_config` wipes the per-port file, the daemon's next reconciliation restores the managed block without creating duplicate VirtualHost entries for the same ServerName.
+33. The managed block and the JSON entry are always consistent after reconciliation (same hostnames, same ports, same forced `local` access profile).
+34. Adding a managed rule when `reverseproxy.json` already has 64 entries produces a user-visible notice and the rule is not added.
+35. A primary hostname blocked by an unmanaged reverse proxy `ServerName` or `ServerAlias`, and an alias skipped for that reason, each produce a visible QNAP notice through `notice_log_tool --severity 4`.
+36. An actionable misconfiguration produces one visible QNAP notice through `notice_log_tool --severity 4`.
+37. An operational failure produces both a visible QNAP notice through `notice_log_tool --severity 3` and a syslog entry through `logger`.
+38. Repeated reconciliation while the same failure persists does not spam duplicate notifications.
+39. Clearing a previously reported failure produces one notice-level QNAP recovery notice through `notice_log_tool --severity 5`.
+40. Daemon restart during an open problem does not re-emit the same failure as a new notice and still allows the matching recovery notice later.
+41. Operational failures are retried with backoff and stop retrying after recovery.
+42. mDNS publication failure after a successful reverse proxy reload leaves the HTTP route active while de-announcement and re-announcement retries continue.
+43. A duplicate daemon start is refused while the active daemon instance holds the advisory lock.
+44. Startup reconciliation may adopt an exact-match user-generated `avahi-publish-address` helper whose advertised `hostname + IP` pair matches current desired state only after recovering that pair from process-observable helper metadata; once adopted, that exact-match advertisement becomes service-managed.
+45. Stale lock-file paths without a held advisory lock do not block daemon restart after a crash.
+46. Upgrade stops the daemon, replaces the packaged binary, default assets, and `config.local.yaml.sample`, preserves `config.local.yaml`, and restarts without removing the existing managed reverse proxy config first; startup reconciliation re-announces mDNS entries.
+47. Uninstall removes only daemon-managed reverse proxy and mDNS state (JSON entries + managed block + Avahi publishers) and leaves user-managed entries intact.
 
 ---
 
