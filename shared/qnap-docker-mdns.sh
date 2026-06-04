@@ -6,6 +6,12 @@
 
 QPKG_NAME="qnap-docker-mdns"
 DAEMON="qnap-docker-mdnsd"
+
+# qinstall.sh may invoke us before QPKG_ROOT is exported.
+if [ -z "${QPKG_ROOT}" ]; then
+  QPKG_ROOT="$(dirname "$(readlink -f "$0" 2>/dev/null || readlink "$0" 2>/dev/null || echo "$0")")"
+fi
+
 CONFIG_DIR="${QPKG_ROOT}"
 DAEMON_BIN="${QPKG_ROOT}/${DAEMON}"
 LOCK_FILE="/var/run/${QPKG_NAME}/daemon.lock"
