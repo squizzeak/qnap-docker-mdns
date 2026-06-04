@@ -15,7 +15,7 @@ IMAGE    := qnap-docker-mdns-builder
 QDK_VER  := 2.5.0
 
 .PHONY: all build cross-build test lint clean run dist help
-.PHONY: container-image container-qbuild container-build container-sign container-shell
+.PHONY: container-image container-qbuild container-build container-sign container-shell install
 .PHONY: check-engine
 
 all: build
@@ -37,10 +37,11 @@ help:
 		echo "  container-build  - cross-build + container-qbuild (one step)"; \
 		echo "  container-sign   - container-build + add code signing signature"; \
 		echo "  container-shell  - Interactive shell inside the container"; \
+		echo "  install          - Build, upload, install & enable on NAS via SSH"; \
 	else \
 		echo "Container build: install podman or docker to enable"; \
 		echo "  container-image, container-qbuild, container-build,"; \
-		echo "  container-sign, container-shell"; \
+		echo "  container-sign, container-shell, install"; \
 	fi
 	@echo ""
 	@echo "Code signing requires QNAP_CODESIGNING_TOKEN env variable."
@@ -123,6 +124,19 @@ container-sign: container-qbuild
 	@echo ""
 	@echo "Signed QPKG:"
 	@ls -1 build/*.qpkg 2>/dev/null | xargs -I{} echo "  {}"
+
+# Upload and install the QPKG on a QNAP NAS via SSH.
+# Requires the App Center setting "Allow installation of applications
+# without a valid digital signature" to be enabled on the NAS.
+# Override with: make install NAS_HOST=my-nas.local
+NAS_HOST ?= qnap.local
+
+install: container-build
+	scp build/qnap-docker-mdns_1.0.0.qpkg admin@$(NAS_HOST):/tmp/qnap-docker-mdns.qpkg
+	ssh admin@$(NAS_HOST) "qpkg_cli -m /tmp/qnap-docker-mdns.qpkg -A && qpkg_cli --enable qnap-docker-mdns"
+	@echo ""
+	@echo "Installed and enabled on $(NAS_HOST)."
+	@echo "Check status: ssh admin@$(NAS_HOST) qpkg_cli -s qnap-docker-mdns --output 2"
 
 container-shell: check-engine
 	$(ENGINE) run --rm -it \
