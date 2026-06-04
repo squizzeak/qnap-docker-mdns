@@ -78,7 +78,8 @@ ssh admin@qnap.local
 
 curl -fsSL -o /tmp/qnap-docker-mdns.qpkg \
   "https://github.com/squizzeak/qnap-docker-mdns/releases/latest/download/qnap-docker-mdns_latest.qpkg" && \
-qpkg_cli -m /tmp/qnap-docker-mdns.qpkg -A 1 -q -K
+qpkg_cli -m /tmp/qnap-docker-mdns.qpkg -A 1 -q -K && \
+qpkg_cli --enable qnap-docker-mdns
 ```
 
 The `latest/download/` URL always resolves to the newest release — no need to check version numbers.  The install auto-enables the daemon.  Verify it is running:
