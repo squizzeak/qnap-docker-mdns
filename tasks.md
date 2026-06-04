@@ -1,0 +1,77 @@
+# Tasks
+
+- [x] 1.1 Define shared mDNS types and interfaces
+- [x] 1.2 Implement mDNS publisher with avahi-publish-address
+- [x] 1.3 Create Docker client wrapper with label filtering
+- [x] 1.4 Add Makefile with targets for build, cross-compile, test, lint
+- [x] 2.1 Define container-state types (registry, backend, hostnames, ports)
+- [x] 2.2 Implement HTTP probe for auto-detecting a single HTTP-capable port
+- [x] 2.3 Implement multi-port filtering logic (single HTTP, ambiguous label enforcement)
+- [x] 2.4 Implement alias expansion logic (container name -> hostnames)
+- [x] 2.5 Implement non-loopback binding detection and filtering
+- [x] 3.1 Define reverse proxy rule types and JSON serialization
+- [x] 3.2 Implement read/write for QNAP reverseproxy.json
+- [x] 3.3 Implement DisableRule for QTS 5.0 compat
+- [x] 3.4 Implement RenderAndMerge without deleting unmanaged entries
+- [x] 3.5 Add access profile auto-detection (local profile lookup)
+- [x] 4.1 Implement atomic JSON write with backup
+- [x] 4.2 Implement backup rotation (max 100, oldest evicted)
+- [x] 4.3 Implement rollback on scan_config/validate failure
+- [x] 4.4 Implement rollback on reload failure
+- [x] 5.1 Implement periodic reconciliation loop with jitter
+- [x] 5.2 Implement Docker event listener with debounce
+- [x] 5.3 Wire full reconcile: scan -> merge -> sync -> publish
+- [x] 5.4 Emit QNAP notifications on each reverse proxy entry creation
+- [x] 6.1 Implement daemon lock (pid file with stale detection)
+- [x] 6.2 Implement single-instance enforcement (duplicate start refusal)
+- [x] 7.1 Convert mDNS manager to address mapping (hostname -> [addresses])
+- [x] 7.2 Implement mDNS reconciliation (publish/unpublish diff)
+- [x] 7.3 Add Reconcile() method to Publisher type
+- [x] 8.1 Implement problem state tracking (persist open problems to disk)
+- [x] 8.2 Emit failure notices for proxy sync errors
+- [x] 8.3 Emit recovery notices on problem resolution
+- [x] 8.4 Integrate QNAP log_tool for system event log
+- [x] 9.1 Implement retry state machine with configurable backoff
+- [x] 9.2 Integrate retry into reconciler for sync failures
+- [x] 10.1 Implement startup-time helper adoption via /proc scan
+- [x] 10.2 Test helper adoption recovers after SIGKILL
+- [x] 11.1 Write QPKG control script (qnap-docker-mdns.sh)
+- [x] 11.2 Write QPKG config (qpkg.cfg)
+- [x] 11.3 Write default config.yaml in shared/ package
+- [x] 11.4 Add config validation mode (--dump-config)
+- [x] 11.5 Document container label convention in README
+- [x] 11.6 Document cross-compilation workflow in Makefile
+- [x] 11.7 Document QPKG install/upgrade/uninstall flow
+- [x] 11.8 Document QNAP reverse proxy UI refresh quirk
+- [x] 11.9 Implement deduplication of QNAP notifications within same daemon lifetime
+- [x] 11.10 Implement mDNS collision detection with external addresses
+- [x] 11.11 Verify generated conf files on QNAP after scan_config
+- [x] 12.1 Verify SSH connectivity to QNAP NAS
+- [x] 12.2 Discover QNAP platform paths
+- [x] 12.3 Validate QNAP platform assumptions against real system
+- [x] 12.4 Test fallback behavior when `local` profile is not identified (`access: 0`)
+- [x] 12.5 Adjust reload_command path (QNAP-specific)
+- [x] 12.6 Adjust validate_command path (QNAP-specific)
+- [x] 12.7 Test custom JSON ownership-marker fields survive UI saves and scan_config
+- [x] 12.8 Implement QNAP notice_log_tool integration for popup notifications
+- [x] 12.9 Validate jq availability for scan_config (PATH issue)
+- [x] 12.10 Implement log_tool integration for qulog notification center persistence
+- [x] 13.1 Test single-port container auto-detection and publication
+- [x] 13.2 Test HTTP probe: non-HTTP port not published
+- [x] 13.3 Test multi-port with exactly one HTTP-capable endpoint
+- [x] 13.4 Test multi-port with multiple HTTP-capable endpoints requiring label
+- [x] 13.5 Test alias expansion and mDNS publication
+- [x] 13.6 Test non-loopback binding rejection
+- [ ] 13.7 Test hostname/alias collision resolution
+- [ ] 13.8 Test mDNS collision with external address
+- [x] 13.9 Test JSON write, scan_config, validation, and reload success path
+- [x] 13.10 Test backup creation and retention pruning
+- [ ] 13.11 Test 64-rule limit enforcement
+- [x] 13.12 Test rollback on validation/reload failure
+- [ ] 13.13 Test mDNS failure after proxy reload (keep route active)
+- [ ] 13.14 Test notice deduplication and recovery notices
+- [ ] 13.15 Test daemon restart during open problem
+- [x] 13.16 Test duplicate start refusal
+- [x] 13.17 Test crash recovery (stale lock does not block restart)
+- [ ] 13.18 Test upgrade preserves config and re-announces mDNS
+- [ ] 13.19 Test uninstall removes managed config and stops publishers

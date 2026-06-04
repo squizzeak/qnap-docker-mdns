@@ -59,6 +59,12 @@ func main() {
 	publisher := mdns.NewPublisher()
 	defer publisher.StopAll()
 
+	// Adopt existing avahi-publish-address processes from previous runs
+	// so we don't spawn duplicate mDNS publishers across restarts.
+	if helpers, err := mdns.FindAdoptedHelpers(); err == nil {
+		publisher.Adopt(helpers)
+	}
+
 	proxyMgr := proxy.NewManager()
 	adapter := &reconcile.ConfigAdapter{Config: cfg}
 

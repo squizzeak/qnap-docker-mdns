@@ -6,6 +6,8 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 )
@@ -81,8 +83,26 @@ func (p *Publisher) Unpublish(hostname, ip string) error {
 	delete(p.children, key)
 	p.mu.Unlock()
 
-	if err := child.cmd.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
-		return fmt.Errorf("kill avahi-publish-address %s %s: %w", hostname, ip, err)
+	if err := killProcess(child, hostname, ip); err != nil {
+		return err
+	}
+	return nil
+}
+
+func killProcess(child *childProcess, hostname, ip string) error {
+	if child.cmd != nil {
+		if err := child.cmd.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
+			return fmt.Errorf("kill avahi-publish-address %s %s: %w", hostname, ip, err)
+		}
+		return nil
+	}
+
+	proc, err := os.FindProcess(child.PID)
+	if err != nil {
+		return fmt.Errorf("find adopted avahi-publish-address %s %s (pid %d): %w", hostname, ip, child.PID, err)
+	}
+	if err := proc.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
+		return fmt.Errorf("kill adopted avahi-publish-address %s %s (pid %d): %w", hostname, ip, child.PID, err)
 	}
 	return nil
 }
@@ -93,7 +113,7 @@ func (p *Publisher) StopAll() error {
 
 	var errs []string
 	for key, child := range p.children {
-		if err := child.cmd.Process.Kill(); err != nil {
+		if err := killProcess(child, child.Hostname, child.IP); err != nil {
 			errs = append(errs, fmt.Sprintf("%s: %v", key, err))
 		}
 	}
@@ -116,19 +136,31 @@ func (p *Publisher) ActivePublishers() []string {
 	return keys
 }
 
-func (p *Publisher) Reconcile(desired map[string][]string, adopted map[string]string) error {
+func (p *Publisher) Adopt(helpers map[string]int) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for key, pid := range helpers {
+		if _, exists := p.children[key]; exists {
+			continue
+		}
+		parts := strings.SplitN(key, "|", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		p.children[key] = &childProcess{
+			Hostname: parts[0],
+			IP:       parts[1],
+			PID:      pid,
+		}
+	}
+}
+
+func (p *Publisher) Reconcile(desired map[string][]string) error {
 	desiredSet := make(map[string]bool)
 	for hostname, ips := range desired {
 		for _, ip := range ips {
 			key := childKey(hostname, ip)
 			desiredSet[key] = true
-		}
-	}
-
-	for hostname, ip := range adopted {
-		key := childKey(hostname, ip)
-		if desiredSet[key] {
-			desiredSet[key] = false
 		}
 	}
 
@@ -207,10 +239,47 @@ func DiscoverLANAddresses() ([]string, error) {
 	return addresses, nil
 }
 
-func FindAdoptedHelpers() (map[string]string, error) {
-	// Inspect running avahi-publish-address processes by reading /proc
-	// This is a best-effort startup reconciliation helper.
-	return make(map[string]string), nil
+func FindAdoptedHelpers() (map[string]int, error) {
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		return nil, fmt.Errorf("read /proc: %w", err)
+	}
+
+	helpers := make(map[string]int)
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		pid, err := strconv.Atoi(entry.Name())
+		if err != nil {
+			continue
+		}
+
+		cmdline, err := os.ReadFile(filepath.Join("/proc", entry.Name(), "cmdline"))
+		if err != nil {
+			continue
+		}
+
+		args := strings.Split(strings.TrimRight(string(cmdline), "\x00"), "\x00")
+		if len(args) < 5 || !isAvahiPublishCmd(args) {
+			continue
+		}
+
+		hostname := args[3]
+		ip := args[4]
+		key := childKey(hostname, ip)
+		helpers[key] = pid
+	}
+
+	return helpers, nil
+}
+
+func isAvahiPublishCmd(args []string) bool {
+	basename := filepath.Base(args[0])
+	return basename == "avahi-publish-address" &&
+		len(args) >= 5 &&
+		args[1] == "-R" &&
+		args[2] == "-a"
 }
 
 func ResolveMDNS(hostname string) ([]string, error) {

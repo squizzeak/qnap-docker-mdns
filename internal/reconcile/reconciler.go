@@ -295,7 +295,7 @@ func (r *Reconciler) Reconcile(ctx context.Context) {
 		publishMap[d.Hostname] = []string{primaryAddr}
 	}
 
-	if merr := r.publisher.Reconcile(publishMap, nil); merr != nil {
+	if merr := r.publisher.Reconcile(publishMap); merr != nil {
 		notify.LogErr(fmt.Sprintf("mDNS reconciliation: %v", merr))
 	}
 

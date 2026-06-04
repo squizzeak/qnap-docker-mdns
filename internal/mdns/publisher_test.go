@@ -66,7 +66,7 @@ func TestIsHostnamePublishedByExternalNoResolution(t *testing.T) {
 
 func TestReconcileEmptyDesired(t *testing.T) {
 	p := NewPublisher()
-	if err := p.Reconcile(map[string][]string{}, nil); err != nil {
+	if err := p.Reconcile(map[string][]string{}); err != nil {
 		t.Errorf("expected no error for empty reconcile, got %v", err)
 	}
 }
