@@ -1,0 +1,58 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+
+      - name: Test
+        run: go test ./...
+
+      - name: Cross-compile
+        run: make cross-build
+
+      - name: Build container image
+        run: make container-image
+
+      - name: Build QPKG
+        run: make container-qbuild
+
+      - name: Sign QPKG (if token available)
+        env:
+          QNAP_CODESIGNING_TOKEN: ${{ secrets.QNAP_CODESIGNING_TOKEN }}
+        run: |
+          if [ -n "$QNAP_CODESIGNING_TOKEN" ]; then
+            make container-sign
+          else
+            echo "QNAP_CODESIGNING_TOKEN secret not set — publishing unsigned QPKG."
+          fi
+
+      - name: Checksums
+        run: |
+          cd build
+          sha256sum *.qpkg > checksums.txt
+          cat checksums.txt
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            build/*.qpkg
+            build/checksums.txt
+          generate_release_notes: true
+          fail_on_unmatched_files: true
