@@ -94,6 +94,9 @@ container-qbuild: check-engine stage-binary
 		-v "$(PWD):/build:Z" \
 		$(IMAGE) \
 		qbuild --force-config
+	@echo ""
+	@echo "QPKG built:"
+	@ls -1 build/*.qpkg 2>/dev/null | xargs -I{} echo "  {}"
 
 # Interactive shell for debugging the build environment
 container-shell: check-engine
