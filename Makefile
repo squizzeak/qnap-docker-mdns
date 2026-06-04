@@ -15,7 +15,7 @@ IMAGE    := qnap-docker-mdns-builder
 QDK_VER  := 2.5.0
 
 .PHONY: all build cross-build test lint clean run dist help
-.PHONY: container-image container-qbuild container-build container-sign container-shell install
+.PHONY: container-image container-qbuild container-build container-sign container-shell install release
 .PHONY: check-engine
 
 all: build
@@ -38,10 +38,11 @@ help:
 		echo "  container-sign   - container-build + add code signing signature"; \
 		echo "  container-shell  - Interactive shell inside the container"; \
 		echo "  install          - Build, upload, install & enable on NAS via SSH"; \
+		echo "  release          - Tag and push a release (make release VER=v1.0.0)"; \
 	else \
 		echo "Container build: install podman or docker to enable"; \
 		echo "  container-image, container-qbuild, container-build,"; \
-		echo "  container-sign, container-shell, install"; \
+		echo "  container-sign, container-shell, install, release"; \
 	fi
 	@echo ""
 	@echo "Code signing requires QNAP_CODESIGNING_TOKEN env variable."
@@ -137,6 +138,19 @@ install: container-build
 	@echo ""
 	@echo "Installed and enabled on $(NAS_HOST)."
 	@echo "Check status: ssh admin@$(NAS_HOST) qpkg_cli -s qnap-docker-mdns --output 2"
+
+# Tag and push a release (triggers the GitHub Actions workflow).
+# Usage: make release VER=v1.0.0
+release:
+	@if [ -z "$(VER)" ]; then \
+		echo "Usage: make release VER=v1.0.0"; \
+		exit 1; \
+	fi
+	git tag $(VER)
+	git push origin $(VER)
+	@echo ""
+	@echo "Tag $(VER) pushed.  GitHub Actions will build and publish the release:"
+	@echo "  https://github.com/squizzeak/qnap-docker-mdns/actions"
 
 container-shell: check-engine
 	$(ENGINE) run --rm -it \
