@@ -98,6 +98,11 @@ func NotifyRecovery(detail string) {
 	noticeLogTool(msg, "5")
 }
 
+func NotifyAudit(detail string) {
+	msg := fmt.Sprintf("[qnap-docker-mdns] %s", detail)
+	noticeLogTool(msg, "5")
+}
+
 func LogErr(msg string) {
 	logger(msg, "daemon.err")
 }

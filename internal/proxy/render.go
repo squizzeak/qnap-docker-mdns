@@ -98,12 +98,17 @@ type DesiredRule struct {
 	Port          uint16
 	ListenPort    int
 	AccessID      int
+	IsAlias       bool
 }
 
 func RenderManagedEntry(rule DesiredRule, existingID int) RuleEntry {
+	nameSuffix := " (managed)"
+	if rule.IsAlias {
+		nameSuffix = " (managed alias)"
+	}
 	return RuleEntry{
 		ID:                   existingID,
-		Name:                 rule.Hostname + " (managed)",
+		Name:                 rule.Hostname + nameSuffix,
 		Protocol:             "http",
 		DesProtocol:          "http",
 		ServerName:           rule.Hostname,
@@ -177,6 +182,16 @@ func RenderAndMerge(current *ReverseProxyJSON, desired []DesiredRule, accessID i
 
 func NormalizedKey(containerName, hostname string) string {
 	return "container:" + containerName + "|hostname:" + hostname
+}
+
+func EntryExists(rp *ReverseProxyJSON, containerName, hostname string) bool {
+	key := NormalizedKey(containerName, hostname)
+	for _, entry := range rp.List {
+		if entry.QnapDockerMdnsManaged && entry.QnapDockerMdnsKey == key {
+			return true
+		}
+	}
+	return false
 }
 
 func IsUnmanagedServerName(current *ReverseProxyJSON, hostname string, accessProfileJSONPath string) bool {

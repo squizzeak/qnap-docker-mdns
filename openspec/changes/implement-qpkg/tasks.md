@@ -130,16 +130,16 @@
 
 ## 12. Stage 1: Platform Integration (On-Target Validation)
 
-- [ ] 12.1 Inspect `/etc/reverseproxy/extra/80.conf` and confirm expected include behavior
-- [ ] 12.2 Inspect `/etc/config/reverseproxy/access.json` and `/etc/reverseproxy/access/*.conf`
-- [ ] 12.3 Verify built-in `local` access-profile discovery by `name: "local"`
+- [x] 12.1 Inspect `/etc/reverseproxy/extra/80.conf` and confirm expected include behavior
+- [x] 12.2 Inspect `/etc/config/reverseproxy/access.json` and `/etc/reverseproxy/access/*.conf`
+- [x] 12.3 Verify built-in `local` access-profile discovery by `name: "local"`
 - [ ] 12.4 Test fallback behavior when `local` profile is not identified (`access: 0`)
-- [ ] 12.5 Test candidate reload commands and record working defaults
-- [ ] 12.6 Test candidate validate commands and record working defaults
+- [x] 12.5 Test candidate reload commands and record working defaults
+- [x] 12.6 Test candidate validate commands and record working defaults
 - [ ] 12.7 Test custom JSON ownership-marker fields survive UI saves and `scan_config`
-- [ ] 12.8 Verify `/var/run/docker.sock` access from QPKG service context
-- [ ] 12.9 Verify `notice_log_tool`, `logger`, `avahi-publish-address`, `ip route` availability
-- [ ] 12.10 Capture QTS-version-specific deviations for configurable settings
+- [x] 12.8 Verify `/var/run/docker.sock` access from QPKG service context
+- [x] 12.9 Verify `notice_log_tool`, `logger`, `avahi-publish-address`, `ip route` availability
+- [x] 12.10 Capture QTS-version-specific deviations for configurable settings
 
 ## 13. Stage 11: End-To-End Validation
 

@@ -116,6 +116,7 @@ func TestNotifyFunctionsDoNotPanic(t *testing.T) {
 	NotifyMisconfig("test", "test message")
 	NotifyFailure("test failure")
 	NotifyRecovery("test recovery")
+	NotifyAudit("test audit")
 	LogErr("test error")
 	LogWarn("test warning")
 	LogInfo("test info")

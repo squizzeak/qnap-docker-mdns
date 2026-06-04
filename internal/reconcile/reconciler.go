@@ -226,6 +226,7 @@ func (r *Reconciler) Reconcile(ctx context.Context) {
 				Port:          b.Port,
 				ListenPort:    r.cfg.ListenPort(),
 				AccessID:      accessID,
+				IsAlias:       true,
 			})
 		}
 	}
@@ -243,6 +244,14 @@ func (r *Reconciler) Reconcile(ctx context.Context) {
 		return
 	}
 	r.problemState.Close(sig)
+
+	for _, d := range desired {
+		if !proxy.EntryExists(current, d.ContainerName, d.Hostname) {
+			notify.NotifyAudit(fmt.Sprintf(
+				"reverse proxy entry created: %s → %s:%d (container: %s)",
+				d.Hostname, "localhost", d.Port, d.ContainerName))
+		}
+	}
 
 	if !hasLAN {
 		sig := notify.ProblemSignature("lan-addrs", "*")

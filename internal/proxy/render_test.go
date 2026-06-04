@@ -69,6 +69,21 @@ func TestRenderManagedEntry(t *testing.T) {
 	}
 }
 
+func TestRenderManagedAliasEntry(t *testing.T) {
+	rule := DesiredRule{
+		ContainerName: "grafana",
+		Hostname:      "grafana.local",
+		Port:          3000,
+		ListenPort:    80,
+		AccessID:      1,
+		IsAlias:       true,
+	}
+	entry := RenderManagedEntry(rule, 5)
+	if entry.Name != "grafana.local (managed alias)" {
+		t.Errorf("expected 'grafana.local (managed alias)', got %s", entry.Name)
+	}
+}
+
 func TestRenderAndMergePreservesUnmanaged(t *testing.T) {
 	current := &ReverseProxyJSON{
 		List: map[string]RuleEntry{
@@ -159,5 +174,26 @@ func TestNormalizedKey(t *testing.T) {
 	key := NormalizedKey("grafana", "grafana.local")
 	if key != "container:grafana|hostname:grafana.local" {
 		t.Errorf("unexpected key: %s", key)
+	}
+}
+
+func TestEntryExists(t *testing.T) {
+	rp := &ReverseProxyJSON{
+		List: map[string]RuleEntry{
+			"1": {ID: 1, QnapDockerMdnsManaged: true, QnapDockerMdnsKey: "container:app|hostname:app.local"},
+			"2": {ID: 2, QnapDockerMdnsManaged: false, ServerName: "manual.local"},
+		},
+	}
+	if !EntryExists(rp, "app", "app.local") {
+		t.Error("expected EntryExists=true for managed entry")
+	}
+	if EntryExists(rp, "app", "other.local") {
+		t.Error("expected EntryExists=false for unknown hostname")
+	}
+	if EntryExists(rp, "other", "app.local") {
+		t.Error("expected EntryExists=false for unknown container")
+	}
+	if EntryExists(rp, "app", "manual.local") {
+		t.Error("expected EntryExists=false for unmanaged entry")
 	}
 }
