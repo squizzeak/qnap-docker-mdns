@@ -195,11 +195,7 @@ After the daemon writes new reverse-proxy entries the QNAP Web GUI does **not** 
 
 ## Using it
 
-After installation, enable any Docker container by adding `qnap-docker-mdns.enable=true` as a label:
-
-```bash
-docker update --label-add qnap-docker-mdns.enable=true my-container
-```
+After installation, create or edit your docker containers and add `qnap-docker-mdns.enable=true` as a label.
 
 The daemon detects the change within 500 ms, probes the container's ports, and publishes the hostname.  Visit `http://<container-name>.local` from any device on your LAN.
 
