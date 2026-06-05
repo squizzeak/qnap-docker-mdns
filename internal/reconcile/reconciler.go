@@ -2,6 +2,7 @@ package reconcile
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/rand"
 	"strings"
@@ -16,6 +17,8 @@ import (
 	"github.com/squizzeak/qnap-docker-mdns/internal/state"
 )
 
+const startEventDelay = 10 * time.Second
+
 
 
 type Reconciler struct {
@@ -28,6 +31,7 @@ type Reconciler struct {
 	stopCh       chan struct{}
 	wg           sync.WaitGroup
 	problemState *notify.ProblemState
+	activeState  *notify.ProblemState
 	retryState   *notify.RetryState
 }
 
@@ -40,6 +44,7 @@ func NewReconciler(dockerClient *dockerpkg.Client, publisher *mdns.Publisher, pr
 		triggerCh:    make(chan struct{}, 1),
 		stopCh:       make(chan struct{}),
 		problemState: notify.NewProblemState(cfg.NoticeStateFile()),
+		activeState:  notify.NewProblemState(cfg.ActiveNoticeStateFile()),
 		retryState:   notify.NewRetryState(),
 	}
 }
@@ -53,6 +58,39 @@ func (r *Reconciler) Start(ctx context.Context) {
 func (r *Reconciler) Stop() {
 	close(r.stopCh)
 	r.wg.Wait()
+}
+
+func (r *Reconciler) Shutdown() error {
+	r.Stop()
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	var errs []string
+
+	current, err := proxy.ReadJSON(r.cfg.JSONPath())
+	if err != nil {
+		err = fmt.Errorf("read reverseproxy.json during shutdown: %w", err)
+		errs = append(errs, err.Error())
+	} else {
+		updated := proxy.RenderAndMerge(current, nil, 0)
+		result := r.proxyMgr.Sync(current, updated, r.cfg)
+		if !result.Success {
+			errs = append(errs, "shutdown proxy cleanup failed: "+result.Error)
+		}
+	}
+
+	if err := r.publisher.StopAll(); err != nil {
+		errs = append(errs, err.Error())
+	}
+
+	r.activeState.ClearAll()
+
+	if len(errs) > 0 {
+		return errors.New(strings.Join(errs, "; "))
+	}
+
+	return nil
 }
 
 func (r *Reconciler) Trigger() {
@@ -80,10 +118,14 @@ func (r *Reconciler) eventLoop(ctx context.Context) {
 			}
 		case event := <-eventCh:
 			if isTrackedEvent(event) {
+				delay := r.cfg.DebounceWindow()
+				if event.Action == "start" {
+					delay = startEventDelay
+				}
 				if timer != nil {
 					timer.Stop()
 				}
-				timer = time.AfterFunc(r.cfg.DebounceWindow(), func() {
+				timer = time.AfterFunc(delay, func() {
 					r.Reconcile(ctx)
 				})
 			}
@@ -271,14 +313,6 @@ func (r *Reconciler) Reconcile(ctx context.Context) {
 	}
 	r.problemState.Close(sig)
 
-	for _, d := range desired {
-		if !proxy.EntryExists(current, d.ContainerName, d.Hostname) {
-			notify.NotifyAudit(fmt.Sprintf(
-				"reverse proxy entry created: %s → %s:%d (container: %s)",
-				d.Hostname, "localhost", d.Port, d.ContainerName))
-		}
-	}
-
 	if !hasLAN {
 		sig := notify.ProblemSignature("lan-addrs", "*")
 		if !r.problemState.IsOpen(sig) {
@@ -297,6 +331,27 @@ func (r *Reconciler) Reconcile(ctx context.Context) {
 
 	if merr := r.publisher.Reconcile(publishMap); merr != nil {
 		notify.LogErr(fmt.Sprintf("mDNS reconciliation: %v", merr))
+		return
+	}
+
+	seenActive := make(map[string]bool, len(desired))
+	for _, d := range desired {
+		sig := notify.ProblemSignature("active", d.ContainerName+"|"+d.Hostname)
+		seenActive[sig] = true
+		if !r.activeState.IsOpen(sig) {
+			notify.NotifyInfo(fmt.Sprintf(
+				"reverse proxy entry created: %s → %s:%d (container: %s)",
+				d.Hostname, "localhost", d.Port, d.ContainerName))
+			r.activeState.Open(sig)
+		}
+	}
+	for sig := range r.activeState.AllOpen() {
+		if _, ok := strings.CutPrefix(sig, "active:"); !ok {
+			continue
+		}
+		if !seenActive[sig] {
+			r.activeState.Close(sig)
+		}
 	}
 
 	notify.LogInfo("reconciliation complete")

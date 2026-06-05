@@ -70,6 +70,13 @@ func (ps *ProblemState) AllOpen() map[string]bool {
 	return result
 }
 
+func (ps *ProblemState) ClearAll() {
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
+	ps.open = make(map[string]bool)
+	ps.save()
+}
+
 func (ps *ProblemState) load() {
 	data, err := os.ReadFile(ps.statePath)
 	if err != nil {
@@ -108,9 +115,14 @@ func NotifyRecovery(detail string) {
 	eventLogTool(eventInfo, msg)
 }
 
-func NotifyAudit(detail string) {
+func NotifyInfo(detail string) {
 	msg := fmt.Sprintf("[qnap-docker-mdns] %s", detail)
 	noticeLogTool(msg, "5")
+	eventLogTool(eventInfo, msg)
+}
+
+func NotifyAudit(detail string) {
+	msg := fmt.Sprintf("[qnap-docker-mdns] %s", detail)
 	eventLogTool(eventInfo, msg)
 }
 
@@ -133,40 +145,34 @@ func ReloadFailureDetail(cmd string, exitCode int, stderr string) string {
 func noticeLogTool(msg, severity string) {
 	// Uses the QNAP notice_log_tool binary for popup notifications.
 	// In tests or non-QNAP environments, this is a no-op.
-	go func() {
-		cmd := exec.Command("notice_log_tool",
-			"-E", msg,
-			"-t", severity,
-			"-u", userAdmin,
-			"-i", appName,
-			"-y", facilityApp,
-			"-N", "qnap-docker-mdns",
-			"-S", "2",
-			"-g", "MSG_QDM_001",
-		)
-		cmd.Run()
-	}()
+	cmd := exec.Command("notice_log_tool",
+		"-E", msg,
+		"-t", severity,
+		"-u", userAdmin,
+		"-i", appName,
+		"-y", facilityApp,
+		"-N", "qnap-docker-mdns",
+		"-S", "2",
+		"-g", "MSG_QDM_001",
+	)
+	cmd.Run()
 }
 
 func eventLogTool(eventType, msg string) {
 	// Uses the QNAP log_tool binary for persistent entries in qulog notification center.
 	// In tests or non-QNAP environments, this is a no-op.
-	go func() {
-		cmd := exec.Command("log_tool",
-			"-t", eventType,
-			"-u", userAdmin,
-			"-m", appName,
-			"-a", msg,
-		)
-		cmd.Run()
-	}()
+	cmd := exec.Command("log_tool",
+		"-t", eventType,
+		"-u", userAdmin,
+		"-m", appName,
+		"-a", msg,
+	)
+	cmd.Run()
 }
 
 func logger(msg, priority string) {
-	go func() {
-		cmd := exec.Command("logger", "-t", appName, "-p", priority, msg)
-		cmd.Run()
-	}()
+	cmd := exec.Command("logger", "-t", appName, "-p", priority, msg)
+	cmd.Run()
 }
 
 func ProblemSignature(domain, containerName string) string {

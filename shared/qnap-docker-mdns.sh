@@ -16,6 +16,24 @@ CONFIG_DIR="${QPKG_ROOT}"
 DAEMON_BIN="${QPKG_ROOT}/${DAEMON}"
 LOCK_FILE="/var/run/${QPKG_NAME}/daemon.lock"
 
+pid_is_running() {
+  kill -0 "$1" 2>/dev/null
+}
+
+wait_for_exit() {
+  PID="$1"
+  TIMEOUT="${2:-30}"
+  I=0
+  while pid_is_running "${PID}"; do
+    if [ "${I}" -ge "${TIMEOUT}" ]; then
+      return 1
+    fi
+    sleep 1
+    I=$((I + 1))
+  done
+  return 0
+}
+
 case "${1}" in
   start)
     # QDK disabled-package guard
@@ -45,15 +63,19 @@ case "${1}" in
     echo "Stopping ${QPKG_NAME}..."
     if [ -f "${LOCK_FILE}" ]; then
       PID=$(cat "${LOCK_FILE}" 2>/dev/null)
-      kill "${PID}" 2>/dev/null
-      sleep 1
+      if pid_is_running "${PID}"; then
+        kill "${PID}" 2>/dev/null
+        if ! wait_for_exit "${PID}" 30; then
+          echo "${QPKG_NAME} did not stop within 30 seconds"
+          exit 1
+        fi
+      fi
     fi
     echo "${QPKG_NAME} stopped"
     ;;
 
   restart)
     $0 stop
-    sleep 1
     $0 start
     ;;
 

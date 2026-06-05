@@ -110,7 +110,7 @@ func DefaultConfig() *Config {
 			MaxBackoff:       Duration{Duration: 5 * time.Minute},
 			JitterPercent:    20,
 		},
-		ProbeTimeout: Duration{Duration: 2 * time.Second},
+		ProbeTimeout: Duration{Duration: 30 * time.Second},
 	}
 }
 

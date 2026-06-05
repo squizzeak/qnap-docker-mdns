@@ -53,6 +53,24 @@ func TestProblemStateAllOpen(t *testing.T) {
 	}
 }
 
+func TestProblemStateClearAll(t *testing.T) {
+	dir := t.TempDir()
+	statePath := filepath.Join(dir, "state.json")
+	ps := NewProblemState(statePath)
+	ps.Open("a")
+	ps.Open("b")
+	ps.ClearAll()
+
+	if len(ps.AllOpen()) != 0 {
+		t.Fatalf("expected no open state after ClearAll")
+	}
+
+	ps2 := NewProblemState(statePath)
+	if len(ps2.AllOpen()) != 0 {
+		t.Fatalf("expected cleared state to persist")
+	}
+}
+
 func TestRetryStateInitial(t *testing.T) {
 	rs := NewRetryState()
 	cfg := config.RetryConfig{
@@ -116,6 +134,7 @@ func TestNotifyFunctionsDoNotPanic(t *testing.T) {
 	NotifyMisconfig("test", "test message")
 	NotifyFailure("test failure")
 	NotifyRecovery("test recovery")
+	NotifyInfo("test info notice")
 	NotifyAudit("test audit")
 	LogErr("test error")
 	LogWarn("test warning")

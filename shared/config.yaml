@@ -29,4 +29,4 @@ retry:
   max_backoff: 5m
   jitter_percent: 20
 
-probe_timeout: 2s
+probe_timeout: 30s

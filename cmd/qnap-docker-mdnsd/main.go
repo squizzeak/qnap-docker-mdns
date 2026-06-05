@@ -12,6 +12,7 @@ import (
 	"github.com/squizzeak/qnap-docker-mdns/internal/config"
 	dockerpkg "github.com/squizzeak/qnap-docker-mdns/internal/docker"
 	"github.com/squizzeak/qnap-docker-mdns/internal/mdns"
+	"github.com/squizzeak/qnap-docker-mdns/internal/notify"
 	"github.com/squizzeak/qnap-docker-mdns/internal/proxy"
 	"github.com/squizzeak/qnap-docker-mdns/internal/reconcile"
 	"github.com/squizzeak/qnap-docker-mdns/internal/state"
@@ -57,7 +58,6 @@ func main() {
 	defer dockerClient.Close()
 
 	publisher := mdns.NewPublisher()
-	defer publisher.StopAll()
 
 	// Adopt existing avahi-publish-address processes from previous runs
 	// so we don't spawn duplicate mDNS publishers across restarts.
@@ -73,6 +73,7 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	notify.NotifyInfo("process started")
 	reconciler.Start(ctx)
 
 	sigCh := make(chan os.Signal, 1)
@@ -80,5 +81,10 @@ func main() {
 	<-sigCh
 
 	fmt.Println("qnap-docker-mdns: shutting down")
-	reconciler.Stop()
+	if err := reconciler.Shutdown(); err != nil {
+		notify.NotifyFailure(fmt.Sprintf("shutdown cleanup failed: %v", err))
+		fmt.Fprintf(os.Stderr, "shutdown cleanup failed: %v\n", err)
+		return
+	}
+	notify.NotifyInfo("process stopped; all reverse proxies removed")
 }

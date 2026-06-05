@@ -21,8 +21,8 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.Reconcile.Debounce.Duration != 500*time.Millisecond {
 		t.Errorf("expected 500ms, got %v", cfg.Reconcile.Debounce.Duration)
 	}
-	if cfg.ProbeTimeout.Duration != 2*time.Second {
-		t.Errorf("expected 2s, got %v", cfg.ProbeTimeout.Duration)
+	if cfg.ProbeTimeout.Duration != 30*time.Second {
+		t.Errorf("expected 30s, got %v", cfg.ProbeTimeout.Duration)
 	}
 }
 

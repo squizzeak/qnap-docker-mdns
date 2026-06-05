@@ -1,6 +1,7 @@
 package reconcile
 
 import (
+	"path/filepath"
 	"time"
 
 	"github.com/squizzeak/qnap-docker-mdns/internal/config"
@@ -56,4 +57,8 @@ func (a *ConfigAdapter) LockFilePath() string {
 
 func (a *ConfigAdapter) NoticeStateFile() string {
 	return a.Config.State.NoticeStateFile
+}
+
+func (a *ConfigAdapter) ActiveNoticeStateFile() string {
+	return filepath.Join(filepath.Dir(a.Config.State.NoticeStateFile), "active-state.json")
 }
