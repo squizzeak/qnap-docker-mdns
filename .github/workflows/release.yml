@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Existing tag to build and publish'
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -11,9 +17,13 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ github.event.inputs.release_tag || github.ref_name }}
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -42,22 +52,23 @@ jobs:
             echo "QNAP_CODESIGNING_TOKEN secret not set — publishing unsigned QPKG."
           fi
 
-      - name: Create latest alias
+      - name: Create release asset
         run: |
           cd build
-          cp qnap-docker-mdns_*.qpkg qnap-docker-mdns_latest.qpkg
+          cp qnap-docker-mdns_*.qpkg qnap-docker-mdns.qpkg
 
       - name: Checksums
         run: |
           cd build
-          sha256sum $(ls *.qpkg | grep -v _latest) > checksums.txt
+          sha256sum qnap-docker-mdns.qpkg > checksums.txt
           cat checksums.txt
 
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ env.RELEASE_TAG }}
           files: |
-            build/*.qpkg
+            build/qnap-docker-mdns.qpkg
             build/checksums.txt
           generate_release_notes: true
           fail_on_unmatched_files: true
